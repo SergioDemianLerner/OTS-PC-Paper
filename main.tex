@@ -28,8 +28,14 @@
   note/.style={font=\tiny, align=left},
   fl/.style={-{Stealth[length=3.5pt]}, thin},
   flx/.style={-{Stealth[length=3.5pt]}, thin, gray!55},
-  bus/.style={gray!75, thin}
+  bus/.style={gray!75, thin},
+  ref/.style={-{Stealth[length=3.5pt]}, thin, dashed, gray!70}
 }
+% Semicircular hops marking a crossing with no connection, as in
+% digital circuit schematics. One per direction of travel.
+\newcommand{\hopr}{arc (180:0:0.1)}
+\newcommand{\hopl}{arc (0:180:0.1)}
+\newcommand{\hopd}{arc (90:-90:0.1)}
 \usepackage{float}
 \usepackage{tabularx}
 \usepackage{adjustbox}
@@ -165,23 +171,36 @@ Figure ~\ref{fig:OTS-PC} illustrates the directed acyclic graph (DAG) of transac
 \node[bo, anchor=north] (pa)  at (8.0,-4.15) {PunishAlice($i$)};
 \node[al, anchor=north] (pb)  at (11.2,-4.15) {PunishBob($i$)};
 
+\node[fundo, anchor=north] (ifo) at (-0.9,-2.0) {Initial\_\\Funds\_out};
+
 \node[lbl, anchor=west] at (1.18,-0.95)  {Alice\_Exit\_out};
 \node[lbl, anchor=west] at (4.58,-0.95)  {Bob\_Exit\_out};
 \node[lbl, anchor=west] at (8.08,-0.95)  {Bob\_Disputes\_out};
 \node[lbl, anchor=west] at (11.28,-0.95) {Alice\_Disputes\_out};
 
-\node[fundo, anchor=north] (ifo) at (-0.95,-4.15) {Initial\_\\Funds\_out};
-
 \draw[fl] (1.1,-0.62)  -- (ace.north);
 \draw[fl] (4.5,-0.62)  -- (bce.north);
 \draw[fl] (8.0,-0.62)  -- (cpa.north);
 \draw[fl] (11.2,-0.62) -- (cpb.north);
+\draw[fl] (-0.9,-0.62) -- (ifo.north);
 \draw[fl] (ace) -- (aas);  \draw[fl] (bce) -- (bas);
 \draw[fl] (aas) -- (afe);  \draw[fl] (bas) -- (bfe);
 \draw[fl] (cpa) -- (pa);   \draw[fl] (cpb) -- (pb);
 
-\draw[bus] (ifo.south) -- (-0.95,-5.15) -- (11.2,-5.15);
-\foreach \n in {afe,bfe,pa,pb} { \draw[fl] (\n.south|-{(0,-5.15)}) -- (\n.south); }
+% Initial_Funds_out baja por el margen izquierdo y entra por arriba a las
+% cuatro transacciones que lo gastan, saltando las verticales que cruza.
+\coordinate (d1) at ($(afe.north west)+(0.40,0)$);
+\coordinate (d2) at ($(bfe.north west)+(0.40,0)$);
+\coordinate (d3) at ($(pa.north west)+(0.40,0)$);
+\coordinate (d4) at ($(pb.north west)+(0.40,0)$);
+\coordinate (b1) at (d1 |- 0,-3.70);
+\coordinate (b2) at (d2 |- 0,-3.70);
+\coordinate (b3) at (d3 |- 0,-3.70);
+\coordinate (b4) at (d4 |- 0,-3.70);
+\draw[bus] (ifo.south) -- (-0.9,-3.70) -- (b1) -- (1.0,-3.70) \hopr
+           -- (b2) -- (4.4,-3.70) \hopr -- (b3) -- (7.9,-3.70) \hopr -- (b4);
+\draw[fl] (b1) -- (d1);  \draw[fl] (b2) -- (d2);
+\draw[fl] (b3) -- (d3);  \draw[fl] (b4) -- (d4);
 \end{tikzpicture}
 \caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC. Each owner has an independent exit path. All four bottom transactions spend \ioname{Initial\_Funds\_out}, so exactly one of them ever confirms.}
 \label{fig:OTS-PC}
@@ -283,14 +302,24 @@ In figure ~\ref{fig:OTS-PC-EXAMPLE} we show an example of an onchain dispute whe
 \node[bo, anchor=north] (cp) at (5.4,-1.1) {CommitPunishAlice(100)};
 \node[bo, anchor=north] (pa) at (5.4,-2.6) {PunishAlice(100)};
 
-\node[fundo, anchor=north] (ifo) at (2.7,-3.9) {Initial\_Funds\_out};
+\node[fundo, anchor=north] (ifo) at (8.6,0) {Initial\_\\Funds\_out};
 
 \draw[fl] (ac) -- (aa);
-\draw[flx] (aa) -- node[note, right=1mm, text=gray!70] {blocked: needs the\\dispute window} (af);
+\draw[flx] (aa) -- node[note, right=1mm, pos=0.3, text=gray!70] {blocked: needs the\\dispute window} (af);
 \draw[fl] (cp) -- (pa);
-\draw[fl] (aa.east) -- node[note, above, midway] {reveals $OTS_A(50)$} (cp.west);
-\draw[flx] (ifo) -- (af.south);
-\draw[fl] (ifo) -- node[note, right=1mm] {spent here first} (pa.south);
+\draw[ref] (aa.east) -- node[note, above, midway] {reveals $OTS_A(50)$} (cp.west);
+
+% Initial_Funds_out baja por el margen derecho y entra por arriba a las dos
+% transacciones que lo gastan, saltando las verticales que cruza.
+\coordinate (dl) at ($(af.north west)+(0.40,0)$);
+\coordinate (dr) at ($(pa.north east)-(0.40,0)$);
+\coordinate (bl) at (dl |- 0,-2.35);
+\coordinate (br) at (dr |- 0,-2.35);
+\draw[bus] (ifo.south) -- (8.6,-2.35);
+\draw[bus] (8.6,-2.35) -- node[note, above] {spent here first} (br);
+\draw[fl]  (br) -- (dr);
+\draw[bus] (br) -- (5.5,-2.35) \hopl -- (0.1,-2.35) \hopl -- (bl);
+\draw[flx] (bl) -- (dl);
 \end{tikzpicture}
 \caption{The transactions involved in a dispute. Alice tries to unilaterally exit with state $j=50$, but Bob punishes her using the punishment transactions created in state $i=100$. Greyed transactions never confirm.}
 \label{fig:OTS-PC-EXAMPLE}
@@ -328,17 +357,21 @@ An asymmetric variant would keep the same two paths and change what they pay: th
 \node[al, anchor=north] (ao)  at (3.5,-6.68) {$A_{BAL}(i)$ to Alice};
 
 \node[lbl, anchor=north, text=gray!60] at (1.0,-4.65) {immediate};
-\node[lbl, anchor=north, text=gray!60] at (3.5,-6.02) {after timelock};
+\node[lbl, anchor=west,  text=gray!60] at (3.6,-6.15) {after timelock};
 \node[lbl, anchor=north, text=red!65]  at (7.8,-6.02) {one per $(i,j)$ pair};
 
 \draw[fl] (1.2,-0.62) -- (ifo.north);
 \draw[fl] (6.6,-0.62) -- (ace.north);
-\draw[fl] (ifo.south) -- (aas.north);
-\draw[fl] (ace.south) -- (aas.north);
-\draw[fl] (aas.south) -- (bs.north);
-\draw[fl] (aas.south) -- (rem.north);
-\draw[fl] (rem.south) -- (af.north);
-\draw[fl, red!55] (rem.south) -- (pun.north);
+
+\draw[fl] (ifo.south) -- (1.2,-2.25) -- (2.75,-2.25) -- (2.75,-2.70);
+\draw[fl] (ace.south) -- (6.6,-2.25) -- (5.05,-2.25) -- (5.05,-2.70);
+
+\draw[fl] (2.75,-3.25) -- (2.75,-3.65) -- (1.0,-3.65) -- (1.0,-4.05);
+\draw[fl] (5.05,-3.25) -- (5.05,-3.65) -- (5.4,-3.65) -- (5.4,-4.05);
+
+\draw[fl] (5.0,-4.60) -- (5.0,-4.98) -- (3.5,-4.98) -- (3.5,-5.35);
+\draw[fl, red!55] (5.8,-4.60) -- (5.8,-4.98) -- (7.8,-4.98) -- (7.8,-5.35);
+
 \draw[fl] (af) -- (ao);
 
 \node[note, anchor=north west, text width=100mm] at (-0.5,-7.35)
@@ -421,21 +454,31 @@ Watchtowers receive periodic punishment transactions together with the transacti
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}[x=1cm, y=1cm]
-\node[setupb, minimum width=78mm, anchor=north west] (su) at (-0.3,0) {Setup};
-\node[lbl, anchor=west] at (1.68,-0.92) {WTB\_Disputes\_out};
-\node[lbl, anchor=west] at (5.98,-0.92) {WTA\_Disputes\_out};
+\node[setupb, minimum width=92mm, anchor=north west] (su) at (-0.5,0) {Setup};
+\node[lbl, anchor=west] at (1.48,-0.92) {WTB\_Disputes\_out};
+\node[lbl, anchor=west] at (7.08,-0.92) {WTA\_Disputes\_out};
 
-\node[wt, anchor=north] (cb) at (1.6,-1.25) {WTB-CommitPunishAlice($i$)};
-\node[wt, anchor=north] (ca) at (5.9,-1.25) {WTA-CommitPunishBob($i$)};
-\node[wt, anchor=north] (pb) at (1.6,-2.55) {WTB-PunishAlice($i$)};
-\node[wt, anchor=north] (pa) at (5.9,-2.55) {WTA-PunishBob($i$)};
-\node[fundo, anchor=north] (ifo) at (3.75,-3.75) {Initial\_Funds\_out};
+\node[wt, anchor=north] (cb) at (1.4,-1.25) {WTB-CommitPunishAlice($i$)};
+\node[wt, anchor=north] (ca) at (7.0,-1.25) {WTA-CommitPunishBob($i$)};
+\node[fundo, anchor=north] (ifo) at (4.2,-1.25) {Initial\_\\Funds\_out};
+\node[wt, anchor=north] (pb) at (1.4,-2.55) {WTB-PunishAlice($i$)};
+\node[wt, anchor=north] (pa) at (7.0,-2.55) {WTA-PunishBob($i$)};
 
-\draw[fl] (1.6,-0.62) -- (cb.north);  \draw[fl] (5.9,-0.62) -- (ca.north);
+\draw[fl] (1.4,-0.62) -- (cb.north);
+\draw[fl] (7.0,-0.62) -- (ca.north);
+\draw[fl] (4.2,-0.62) -- (ifo.north);
 \draw[fl] (cb) -- (pb);  \draw[fl] (ca) -- (pa);
-\draw[fl] (ifo.north) -- (pb.south);  \draw[fl] (ifo.north) -- (pa.south);
 
-\node[note, anchor=north west, text width=78mm] at (-0.3,-4.45)
+% Initial_Funds_out tambien entra por arriba a las dos transacciones de castigo.
+\coordinate (dl) at ($(pb.north east)-(0.40,0)$);
+\coordinate (dr) at ($(pa.north west)+(0.40,0)$);
+\coordinate (bl) at (dl |- 0,-2.28);
+\coordinate (br) at (dr |- 0,-2.28);
+\draw[bus] (ifo.south) -- (4.2,-2.28);
+\draw[bus] (4.2,-2.28) -- (bl);  \draw[fl] (bl) -- (dl);
+\draw[bus] (4.2,-2.28) -- (br);  \draw[fl] (br) -- (dr);
+
+\node[note, anchor=north west, text width=92mm] at (-0.5,-3.45)
   {Bob's watchtower WTB punishes Alice, and Alice's watchtower WTA punishes Bob. Each branch spends a dispute output fixed at \txname{Setup}, so a single pair per state suffices and the watchtower retains only the latest one. Neither transaction carries a balance, so the watchtower learns no payment amounts.};
 \end{tikzpicture}
 \caption{The watchtower branch under level 1 privacy}
@@ -463,8 +506,10 @@ We now show how we can increase channel privacy. Watchtowers will not be able to
 \node[wt, anchor=north] (wpb) at (4.7,-3.8) {WTA-PunishBob($i$)};
 
 \draw[fl] (2.9,-0.62) -- (wd.north);
-\draw[fl] (wd.south) -- (wca.north);  \draw[fl] (wd.south) -- (wcb.north);
+\draw[fl] (2.1,-1.80) -- (2.1,-2.20) -- (1.1,-2.20) -- (1.1,-2.60);
+\draw[fl] (3.7,-1.80) -- (3.7,-2.20) -- (4.7,-2.20) -- (4.7,-2.60);
 \draw[fl] (wca) -- (wpa);  \draw[fl] (wcb) -- (wpb);
+
 \node[note, anchor=north west, text width=88mm] at (0,-4.6)
   {Only the watchtower branch changes. The dispute transactions no longer hang off \txname{Setup} directly: they are attached to a fixed \txname{WTDisputes} transaction whose identifier watchtowers cannot predict, published only when a watchtower intervenes. The two exit paths and the owners' own punishment branches are exactly as in Figure \ref{fig:OTS-PC}.};
 \end{tikzpicture}
@@ -632,9 +677,18 @@ In case an old update state is published and there is a dispute, the funds cover
 \node[lbl, anchor=west] (h2a) at (5.0,-2.55) {(1) hash-lock preimage + Alice sig $\rightarrow$ Alice};
 \node[lbl, anchor=west] (h2b) at (5.0,-3.15) {(2) absolute timelock + Bob sig $\rightarrow$ Bob};
 
-\foreach \n in {oa,ob,h1,h2} { \draw[fl] (ft.east) -- (\n.west); }
-\draw[fl] (h1.east) -- (h1a.west);  \draw[fl] (h1.east) -- (h1b.west);
-\draw[fl] (h2.east) -- (h2a.west);  \draw[fl] (h2.east) -- (h2b.west);
+% Aqui el tiempo corre de izquierda a derecha: las salidas dejan la caja por
+% el este y los destinos se alcanzan con polilineas ortogonales.
+\draw[bus] (ft.east) -- (1.8,-0.28);
+\draw[bus] (1.8,-0.15) -- (1.8,-2.85);
+\foreach \n/\y in {oa/-0.15, ob/-0.85, h1/-1.75, h2/-2.85}
+  { \draw[fl] (1.8,\y) -- (\n.west); }
+
+\draw[bus] (h1.east) -- (4.3,-1.75);  \draw[bus] (4.3,-1.45) -- (4.3,-2.05);
+\draw[fl] (4.3,-1.45) -- (h1a.west);  \draw[fl] (4.3,-2.05) -- (h1b.west);
+
+\draw[bus] (h2.east) -- (4.3,-2.85);  \draw[bus] (4.3,-2.55) -- (4.3,-3.15);
+\draw[fl] (4.3,-2.55) -- (h2a.west);  \draw[fl] (4.3,-3.15) -- (h2b.west);
 \end{tikzpicture}
 \caption{An HTLC output of \txname{FinalizeExit($i$)}. The structure is the same on either exit path, so \textit{X} stands for Alice or Bob.}
 \label{fig:OTS-PC-HTLC}
