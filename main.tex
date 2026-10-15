@@ -14,7 +14,7 @@
 \usepackage{booktabs}
 \usepackage{cite}
 \usepackage{tikz}
-\usetikzlibrary{positioning,arrows.meta,fit,calc}
+\usetikzlibrary{positioning,arrows.meta,fit,calc,decorations.pathreplacing}
 \tikzset{
   tx/.style={draw, rounded corners=2pt, align=center, font=\tiny\ttfamily,
              minimum height=5.5mm, inner xsep=2.5pt, inner ysep=1.5pt},
@@ -539,12 +539,47 @@ Figure ~\ref{fig:OTS-PC-L3} presents the DAG for level 3 watchtower privacy.
 
 Without loss of generality, let us assume that only Alice is using a watchtower. The packet $W^A_q(i+1)$ for the watchtower WTA allows revocation of states $j$ $(j < i+1)$ and is stored in a transaction output containing a  \txname{OP\_RETURN}, in the \txname{CommitExit(i)} transaction associated with channel $q$. The \txname{OP\_RETURN} will also contain the index $i$ in plaintext form. $T^A_q(i+1)$ will contain only the \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions required.
 
-Instead of both parties using a single decryption key $P_e$, Bob creates a chain of decryption keys $K^A(i-1)=H(K^A(i))$. Note that Bob creates the key $K^A$ to encrypt Alice’s watchtower data. For the first key $K^A(M)$, we use a sufficiently high $M$ (e.g. $M=2^32$).  Our payment channel will support $M$ state updates before requiring closing. When creating the state update $i$, Alice will receive from Bob the packet $W^A_q(i+1)$ encrypted with the key $K^A(i+1)$ ($W^A_q(i+1) =  E_{K^A(i+1)}( T^A_q(i+1))$. Alice will store the packet in the transaction output pushing its value after the \txname{OP\_RETURN}. Alice cannot verify the correctness of $W^A_q(i+1)$ at this point, but she continues with the protocol.
+Instead of both parties using a single decryption key $P_e$, Bob creates a chain of decryption keys $K^A(i-1)=H(K^A(i))$. Note that Bob creates the key $K^A$ to encrypt Alice’s watchtower data. For the first key $K^A(M)$, we use a sufficiently high $M$. Our payment channel will support $M$ state updates before requiring closing, so $M$ is bounded by the same Script limit as the sequence numbers themselves: what is one-time signed and compared with \opc{LESSTHAN} is the external sequence number $S(j)$, which must satisfy $S(M) \leq 2^{31}-1$. Because $S(j) \geq j$, and strictly exceeds it whenever a random offset is applied, $M$ must be chosen correspondingly below $2^{31}-1$ rather than at it. When creating the state update $i$, Alice will receive from Bob the packet $W^A_q(i+1)$ encrypted with the key $K^A(i+1)$ ($W^A_q(i+1) =  E_{K^A(i+1)}( T^A_q(i+1))$. Alice will store the packet in the transaction output pushing its value after the \txname{OP\_RETURN}. Alice cannot verify the correctness of $W^A_q(i+1)$ at this point, but she continues with the protocol.
 
 When the next channel state with sequence number $(i+1)$ is created, Bob will reveal to Alice the key $K^A(i+1)$. Alice will verify that $W^A_q(i+1)$ (embedded in the previous state update transactions) was correctly encrypted. If not, then Alice aborts the state update and unilaterally exits the channel. Although we can force the revelation of $K^A(i+1)$ to occur before Bob can use the new channel state, it is not important, since if $W^A_q(i+1)$ is incorrect, Alice (who is currently online) can immediately start a unilateral exit without the help of a watchtower. 
 If $W^A_q(i+1)$ is correct, then Alice sends her watchtower the tuple ($q$, $K^A(i+1)$, $i+1$). The watchtower discards any previous entry related to $q$, and stores this new tuple. 
 
-When a dispute occurs onchain, Bob's \txname{BobStartExit} transaction will be posted onchain (with ID $q$) and so watchtowers can scan their directory looking for an entry related to the channel ID $q$ and retrieve the last tuple ($i+1$, $K^A(i+1)$). At that point, the watchtower waits until \txname{BobCommitExit} is published to recover the state update index $j$. This information is enough for the watchtower to compute $K^A(j+1)$ from $K^A(i+1)$ by chained hashing. Afterward, the watchtower can decrypt $W^A_q(i+1)$ and obtain \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions.
+When a dispute occurs onchain, Bob's \txname{BobStartExit} transaction will be posted onchain (with ID $q$) and so watchtowers can scan their directory looking for an entry related to the channel ID $q$ and retrieve the last tuple ($i+1$, $K^A(i+1)$). At that point, the watchtower waits until \txname{BobCommitExit} is published to recover the state update index $j$. This information is enough for the watchtower to compute $K^A(j+1)$ from $K^A(i+1)$ by chained hashing. Afterward, the watchtower can decrypt $W^A_q(j+1)$ --- the packet carried by the \txname{BobCommitExit($j$)} that was actually published, not the one for the latest state --- and obtain the \txname{WTA-CommitPunishBob($j$)} and \txname{WTA-PunishBob($j$)} transactions. Figure~\ref{fig:keychain} shows the three values involved and the hashing that links them.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=1cm, y=1cm,
+  key/.style={draw, rounded corners=2pt, font=\tiny, minimum height=5mm,
+              minimum width=9mm, inner sep=1pt, fill=gray!8},
+  have/.style={key, fill=green!22},
+  need/.style={key, fill=orange!30}]
+
+\foreach \n in {1,...,10}{ \node[key] (k\n) at ({(\n-1)*1.18},0) {$K^A(\n)$}; }
+\node[need] (k4) at ({3*1.18},0) {$K^A(4)$};
+\node[have] (k9) at ({8*1.18},0) {$K^A(9)$};
+
+\foreach \n in {1,...,9}{ \pgfmathtruncatemacro{\m}{\n+1} \draw[fl] (k\m) -- (k\n); }
+\node[lbl, anchor=south] at ({2.1*1.18},0.40) {$K^A(n-1)=H(K^A(n))$, one way only};
+
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}, gray!70]
+  ({3*1.18-0.45},-0.42) -- ({8*1.18+0.45},-0.42)
+  node[midway, below=4pt, font=\tiny, text=gray!75] {5 hashes};
+
+\node[lbl, anchor=south, align=center, text width=33mm] (dbn) at ({8*1.18},0.40)
+  {\textbf{in its database}\\ $(i{+}1,\,K^A(i{+}1))$ with $i{+}1=9$,\\ sent by Alice at the last update};
+\draw[fl, green!45!black] (dbn.south) -- (k9.north);
+
+\node[lbl, anchor=north, align=center, text width=40mm] (chn) at ({1.4*1.18},-1.75)
+  {\textbf{from the blockchain}\\ \txname{BobCommitExit($j$)} with $j=3$,\\ whose \txname{OP\_RETURN} carries $W^A_q(4)$};
+\draw[fl] (chn.north) -- (k4.south);
+
+\node[lbl, anchor=west, align=left, text width=44mm] (out) at ({8.0*1.18},-1.75)
+  {\textbf{must compute}\\ $K^A(4)=H^{5}(K^A(9))$,\\ then decrypt $W^A_q(4)$ with it};
+\draw[fl, orange!65!black] (k4.south east) to[out=-30, in=180] (out.west);
+\end{tikzpicture}
+\caption{The watchtower holds one key of the chain and hashes forward to reach the one it needs. Holding $K^A(9)$ yields every earlier key and no later one, so a watchtower can punish any stale state but learns nothing about states still to come.}
+\label{fig:keychain}
+\end{figure}
 
 We can use the ShaChain trick~\cite{lightning_bolts_03_transactions} to recover $K^A(j+1)$ in $O(log(M))$ hash computations instead of $O(M)$, but store $O(log(N))$ hashes per channel instead of $O(1)$.
 
