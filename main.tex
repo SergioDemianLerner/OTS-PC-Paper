@@ -165,10 +165,10 @@ Figure ~\ref{fig:OTS-PC} illustrates the directed acyclic graph (DAG) of transac
 \node[bo, anchor=north] (pa)  at (8.0,-4.15) {PunishAlice($i$)};
 \node[al, anchor=north] (pb)  at (11.2,-4.15) {PunishBob($i$)};
 
-\node[lbl, anchor=south] at (1.1,-1.22)  {Alice\_Exit\_out};
-\node[lbl, anchor=south] at (4.5,-1.22)  {Bob\_Exit\_out};
-\node[lbl, anchor=south] at (8.0,-1.22)  {Bob\_Disputes\_out};
-\node[lbl, anchor=south] at (11.2,-1.22) {Alice\_Disputes\_out};
+\node[lbl, anchor=west] at (1.18,-0.95)  {Alice\_Exit\_out};
+\node[lbl, anchor=west] at (4.58,-0.95)  {Bob\_Exit\_out};
+\node[lbl, anchor=west] at (8.08,-0.95)  {Bob\_Disputes\_out};
+\node[lbl, anchor=west] at (11.28,-0.95) {Alice\_Disputes\_out};
 
 \node[fundo, anchor=north] (ifo) at (-0.95,-4.15) {Initial\_\\Funds\_out};
 
@@ -314,8 +314,8 @@ An asymmetric variant would keep the same two paths and change what they pay: th
 \centering
 \begin{tikzpicture}[x=1cm, y=1cm]
 \node[setupb, minimum width=101mm, anchor=north west] (su) at (-0.5,0) {Setup};
-\node[lbl, anchor=south] at (1.2,-1.12) {Initial\_Funds\_out};
-\node[lbl, anchor=south] at (6.6,-1.12) {Alice\_Exit\_out};
+\node[lbl, anchor=west] at (1.28,-0.92) {Initial\_Funds\_out};
+\node[lbl, anchor=west] at (6.68,-0.92) {Alice\_Exit\_out};
 
 \node[fundo, anchor=north] (ifo) at (1.2,-1.25) {Initial\_Funds\_out};
 \node[al, anchor=north]    (ace) at (6.6,-1.25) {AliceCommitExit($i$)};
@@ -422,8 +422,8 @@ Watchtowers receive periodic punishment transactions together with the transacti
 \centering
 \begin{tikzpicture}[x=1cm, y=1cm]
 \node[setupb, minimum width=78mm, anchor=north west] (su) at (-0.3,0) {Setup};
-\node[lbl, anchor=south] at (1.6,-1.12) {WTB\_Disputes\_out};
-\node[lbl, anchor=south] at (5.9,-1.12) {WTA\_Disputes\_out};
+\node[lbl, anchor=west] at (1.68,-0.92) {WTB\_Disputes\_out};
+\node[lbl, anchor=west] at (5.98,-0.92) {WTA\_Disputes\_out};
 
 \node[wt, anchor=north] (cb) at (1.6,-1.25) {WTB-CommitPunishAlice($i$)};
 \node[wt, anchor=north] (ca) at (5.9,-1.25) {WTA-CommitPunishBob($i$)};
@@ -454,7 +454,7 @@ We now show how we can increase channel privacy. Watchtowers will not be able to
 \centering
 \begin{tikzpicture}[x=1cm, y=1cm]
 \node[setupb, minimum width=58mm, anchor=north west] (su) at (0,0) {Setup};
-\node[lbl, anchor=south] at (2.9,-1.12) {WT\_Disputes\_out};
+\node[lbl, anchor=west] at (2.98,-0.92) {WT\_Disputes\_out};
 \node[setupb, anchor=north] (wd) at (2.9,-1.25) {WTDisputes \quad OP\_RETURN $\langle x\rangle$};
 
 \node[wt, anchor=north] (wca) at (1.1,-2.6) {WTB-CommitPunishAlice($i$)};
@@ -509,8 +509,8 @@ Figure ~\ref{fig:OTS-PC-L3} presents the DAG for level 3 watchtower privacy.
 \centering
 \begin{tikzpicture}[x=1cm, y=1cm]
 \node[setupb, minimum width=104mm, anchor=north west] (su) at (0,0) {Setup};
-\node[lbl, anchor=south] at (2.6,-1.12) {Alice\_Exit\_out};
-\node[lbl, anchor=south] at (7.8,-1.12) {Bob\_Exit\_out};
+\node[lbl, anchor=west] at (2.68,-0.92) {Alice\_Exit\_out};
+\node[lbl, anchor=west] at (7.88,-0.92) {Bob\_Exit\_out};
 
 \node[al, anchor=north, align=center] (ase) at (2.6,-1.25) {AliceStartExit\\OP\_RETURN $\langle x_A\rangle$};
 \node[bo, anchor=north, align=center] (bse) at (7.8,-1.25) {BobStartExit\\OP\_RETURN $\langle x_B\rangle$};
