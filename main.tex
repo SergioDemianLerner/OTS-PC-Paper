@@ -89,7 +89,16 @@ To overcome these limitations, researchers proposed off-chain payment channels, 
 The Lightning Network has proven that layer two constructions can extend Bitcoin’s scalability by several orders of magnitude, while preserving its security guarantees through cryptographic enforcement and dispute mechanisms. However, current payment channel architectures still face limitations: they depend on active monitoring (watchtowers~\cite{dryja2016unlinkable,pisa}), require prefunded liquidity, and involve complex time-locked contracts that constrain usability and capital efficiency.
 
 The notion of payment channels in Bitcoin dates even back to the early versions of the protocol: In the original implementation, Satoshi Nakamoto allowed unconfirmed transactions to be replaced by new versions if all input sequence numbers (nSequence) were increased, allowing multiple interim state changes until a final transaction was broadcast~\cite{nakamoto2010_nsequence}.
-Payment channels evolved from the initial ideas, and the Poon-Dryja~\cite{poon2016bitcoin} design, now standardized in the BOLT specification~\cite{bolts}, powers the Lightning Network. Improvements continued with new protocols such as Eltoo~\cite{decker2018eltoo},   Outpost~\cite{outpost} or Sleepy~\cite{sleepy}, further reducing the requirements on watchtowers. The latest protocols achieve bidirectional payments, provide HTLCs, infinite-updates and lightweight watchtowers with acceptable privacy. However, Lightning Network channels do not provide the best combination of features: they require peers to store $O(log(N))$ hashes for $N$ channel updates, but watchtowers still need to store $O(N)$ data. In contrast, Outpost and our proposed protocol require only $O(1)$ storage for peers and watchtowers. Regarding channel functionality,  lightning channels do not provide full privacy of the payment channel updates in the presence of watchtowers. 
+Payment channels evolved from the initial ideas, and the Poon-Dryja~\cite{poon2016bitcoin} design, now standardized in the BOLT specification~\cite{bolts}, powers the Lightning Network. Improvements continued with new protocols such as Eltoo~\cite{decker2018eltoo},   Outpost~\cite{outpost} or Sleepy~\cite{sleepy}, further reducing the requirements on watchtowers. The latest protocols achieve bidirectional payments, provide HTLCs, infinite-updates and lightweight watchtowers with acceptable privacy. However, Lightning Network channels do not provide the best combination of features: they require peers to store $O(log(N))$ hashes for $N$ channel updates, but watchtowers still need to store $O(N)$ data. In contrast, Outpost and our proposed protocol require only $O(1)$ storage for peers and watchtowers.
+% REVIEW NOTE (not rendered): this O(1) claim needs a decision before the next
+% revision. ExpireAliceExit(i) and ExpireBobExit(i) spend CommitExit_out, whose
+% outpoint changes with i, so a peer must retain one per state -- O(N) -- or a
+% counterparty who publishes a stale CommitExit(j) and then stalls freezes the
+% channel permanently: punishment needs an OTS signature that was never
+% revealed, and asserting the stale state oneself invites punishment. The claim
+% has deliberately been left unchanged here, because the available repair is a
+% protocol change (a two-stage expiry whose trigger spends a dedicated dust
+% output rather than Initial_Funds_out) that the author has not yet approved. Regarding channel functionality,  lightning channels do not provide full privacy of the payment channel updates in the presence of watchtowers. 
 
 From an engineering and practical security point of view, the state of the payment channels is unsatisfactory: the Poon-Dryja design is complex, as is its number of transactions, protocol states, and state transitions. Historically, numerous bugs, incompatibilities with BOLT standards, and security vulnerabilities have been discovered in lightning channel implementations (for example, CVE-2020-26895 in LND). A simpler payment channel design that provides all existing features is enormously valuable. 
 
@@ -143,6 +152,12 @@ When Alice publishes \txname{CommitExit(j)}, she commits to the sequence number 
 
 We must consider whether Bob could disrupt Alice’s plans by issuing the \txname{AssertExitState(j)} transaction himself and signing $j$ his one-time key, instead of Alice's. If Bob learns that $j \neq i$ ($i$ being the latest state sequence number), he should refrain from OT-signing and issuing \txname{AssertExitState(j)} — he will be punished by Alice. Instead, Bob must wait for Alice to OTS-sign $j$. If Alice does not sign $j$, Bob gets all funds in the channel by issuing a timeout transaction \txname{ExpireAliceExit(j)}. Bob can timeout Alice because he has learned $P_a$, and the preimage $P_a$ is required to issue the transaction \txname{ExpireAliceExit(j)}.  If $j = i$, Bob can sign and publish \txname{AssertExitState(i)} safely, which will not affect the integrity of the protocol. However, Alice is still much more incentivized to do so, since if she does not, she can be punished by timeout.
 
+Two observations about which transactions must be recreated at each update, since the reason is not apparent from the figure.
+
+First, \txname{CommitExit($i$)} is state-specific solely because of the \opc{CVALV($i$)} in its first taproot leaf: the other two leaves depend only on $H_a$, $H_b$ and $T$, all fixed during setup. That check is what binds the one-time-signed sequence number to the balance distribution that follows it. Without it, a party could OTS-sign the \emph{current} sequence number in \txname{AssertExitState}, escaping punishment, and then publish a \txname{FinalizeExit($j$)} for a stale $j$, since nothing would tie the signed value to the distribution executed. The check cannot be placed elsewhere: the one-time signature is revealed in the witness of \txname{AssertExitState}, so any script verifying it against a fixed value must reside in the output that \txname{AssertExitState} spends.
+
+Second, and as a consequence, \txname{AssertExitState($i$)}, \txname{ExpireAliceExit($i$)} and \txname{ExpireBobExit($i$)} are state-specific as well, since each of them spends an output of a transaction that changes with $i$. Their structure does not vary, but their inputs do.
+
 In appendix \ref{formalization} we describe each transaction of the DAG.
 
 \subsection{Setup}
@@ -154,20 +169,27 @@ In appendix \ref{formalization} we describe each transaction of the DAG.
     
     \item The public keys $K^A_{pub}$  and $K^B_{pub}$ are exchanged.
  
-    \item Both parties construct the \txname{Setup} transaction (a.k.a. 'Funding transaction') by providing the UTXOs containing the initial funds, building, and signing the transaction and issuing it on the blockchain.
+    \item Both parties construct the \txname{Setup} transaction (a.k.a. 'Funding transaction') by providing the UTXOs containing the initial funds, but they do \emph{not} sign its inputs yet. Because SegWit transaction identifiers do not commit to witness data, the \txname{Setup} transaction identifier is already determined at this point, and the exit path can be built against it.
 
     \item Both parties create the initial state-committing transactions:
     \begin{itemize}
         \item \txname{FinalizeExit(0)}, 
         \item \txname{AssertExitState(0)}, 
-        \item \txname{CommitExit(0)}. 
+        \item \txname{CommitExit(0)},
+        \item \txname{ExpireAliceExit(0)}, \txname{ExpireBobExit(0)}.
     \end{itemize}
     
     These define an initial exit path where each owner can withdraw their initial deposit. At this point, no revocation messages exist, so challenges are not possible.
+
+    \item Both parties sign the above transactions and exchange the signatures. Only once each party holds a fully signed exit path do they sign the \txname{Setup} inputs and issue it on the blockchain.
 \end{itemize}
 
+The ordering of the last two steps is essential. \ioname{Initial\_Funds\_out} is a \opc{CovAddress} and therefore requires both signatures to spend. If \txname{Setup} were published before the exit transactions were signed, a party who stopped responding at that moment would leave the channel balance permanently unspendable, with no unilateral exit available to either owner. This is the same hazard that the Lightning Network avoids by exchanging \texttt{funding\_created} and \texttt{funding\_signed} before the funding transaction is broadcast.
+
 The one-time public keys $K^A_{pub}$ and $K^B_{pub}$ are shown in figures as $KA$ and $KB$.
-The parties can decide the allowed range for encoding and signing $i$. For example, they can use a 32-bit unsigned type to encode $i$, allowing up to 4 billion state updates. Assuming 10 updates per second, this represents 4971 days of continuous payments.  Depleting the number of channel states would require 4971/365 = 13.6 years. 
+The parties can decide the allowed range for encoding and signing $i$, but the range is bounded by Bitcoin Script rather than by the width of the chosen type. The comparison \opc{LESSTHAN} in \ioname{PunishAlice\_out} and \ioname{PunishBob\_out} operates on \texttt{CScriptNum}, which accepts at most four bytes and interprets them as a signed value, so the largest usable sequence number is $2^{31}-1$. Assuming 10 updates per second, this represents 2486 days of continuous payments, that is $2486/365 = 6.8$ years.
+
+Implementations must reject any sequence number above $2^{31}-1$ rather than truncate or widen it. A four-byte encoding of $2^{31}$ is the non-minimal representation of negative zero and is rejected by the minimal-encoding rule, while its minimal five-byte encoding exceeds the \texttt{CScriptNum} limit for arithmetic. Either way the punishment script becomes unexecutable, so a cheater's stale exit could no longer be punished.
 
 \subsection{Committing to a New State}
 
@@ -423,6 +445,10 @@ In case an old update state is published and there is a dispute, the funds cover
 \end{figure}
 
 Informing about active HTLCs to watchtowers is straightforward. Alice can provide her watchtower the list of active HTLCs with their timeout information, together with presigned transactions for spending the HTLCs after timeout, in encrypted form, similar to our level 2 or level 3 watchtower privacy schemes. 
+
+It is worth making explicit why the HTLC amounts must be carried by \txname{FinalizeExit($i$)}, and what that costs. Because an HTLC of a stale state must be seizable by the winner of a dispute, the HTLC outputs cannot become spendable before the dispute window has closed; and because the punishment transactions are pre-signed against \ioname{Initial\_Funds\_out}, whose outpoint is fixed at setup, the funds covering those HTLCs cannot leave that output earlier either. HTLC resolution and dispute resolution are therefore serialised.
+
+This is a consequence of the design choice that gives OTS-PC its $O(1)$ storage. In the Poon-Dryja construction the proof of fraud is a per-commitment revocation secret, which is self-validating and requires no further context: it can be placed first in every output script with no timelock at all, and the BOLT specification uses exactly that property to let an HTLC time out or be fulfilled while the penalty delay is still running. In OTS-PC the proof of fraud is a one-time signature together with evidence that a later state exists, and that evidence is a pre-signed transaction rather than a secret. One one-time key per channel buys constant storage; the price is the loss of a bearer proof of revocation, and with it the ability to decouple HTLC resolution from the dispute window.
 
 \section{Summary}
 
