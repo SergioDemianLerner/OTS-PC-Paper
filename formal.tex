@@ -18,7 +18,7 @@ We make use of an auxiliary functions create verify onetime signatures against a
 
 We define a transaction as \tuple{list-of-inputs, list-of-outputs}. 
 Each input is defined as a prevout structure (\tuple{TxID,index}). However, since we have named each output, we use the name instead. An output is defined as \tuple{amount, address}.
-We omit transaction versions and nSequence, and lockTime values for simplicity. We additionally use:
+We omit transaction versions and nSequence, and lockTime values for simplicity. One exception must be kept in mind by implementers: \opc{CHECKSEQUENCEVERIFY} is enforced only if the spending transaction has version $\geq 2$ and its input sets nSequence to a relative lock at least as large as the one in the script. A transaction that omits either silently loses the timelock, and with it the dispute window. We additionally use:
 
 \begin{itemize}
 \item "-" to indicate that we don't care about this field.
@@ -31,9 +31,9 @@ We omit transaction versions and nSequence, and lockTime values for simplicity. 
 
 \item \opc{CSEQV}$(x)$ is defined as the script that pushes value $x$,  and executes  \opc{CHECKSEQUENCEVERIFY} followed by \opc{DROP}.
 
-\item \opc{CHASHV}$(x)$ is defined as the script that pushes hash value $x$,  and executes  \texttt{HASH160 EQUALVERIFY}.
+\item \opc{CHASHV}$(x)$ is defined as the script that executes \texttt{HASH160}, then pushes the hash value $x$, and executes \texttt{EQUALVERIFY}. Note the order: the opcode hashes the preimage taken from the stack and compares the result against $x$.
 
-\item \opc{CVALV}$(x)$ is defined as the script that pushes hash value $x$,  and executes  \texttt{EQUALVERIFY}.
+\item \opc{CVALV}$(x)$ is defined as the script that pushes the value $x$, and executes \texttt{EQUALVERIFY}.
 
 \end{itemize}
 
@@ -78,13 +78,13 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
   })
 }
 
-\ioname{Bob\_Disputes} = \tuple{ $2\epsilon$, \opc{CovAddress} } 
+\ioname{Bob\_Disputes\_out} = \tuple{ $2\epsilon$, \opc{CovAddress} } 
 
-\ioname{Alice\_Disputes} = \tuple{ $2\epsilon$, \opc{CovAddress} } 
+\ioname{Alice\_Disputes\_out} = \tuple{ $2\epsilon$, \opc{CovAddress} } 
 
-\ioname{WTB\_Disputes} = \tuple{ $2\epsilon$,  \opc{CovAddress} } 
+\ioname{WTB\_Disputes\_out} = \tuple{ $2\epsilon$,  \opc{CovAddress} } 
 
-\ioname{WTA\_Disputes} = \tuple{ $2\epsilon$,  \opc{CovAddress} } 
+\ioname{WTA\_Disputes\_out} = \tuple{ $2\epsilon$,  \opc{CovAddress} } 
  
 \txname{CommitExit($i$)} = \tuple{
     \tuple{ \ioname{Unilateral\_Exit\_out}} ,
@@ -106,19 +106,19 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
      \tuple{ 
        \textbf{[2]} 
        \opc{Covenant-Check(2)}
-       \opc{OT-CSEQV}( $T$ ) 
+       \opc{CSEQV}( $T$ ) 
        \opc{CHASHV($H_a$)} 
       },
       \tuple{ 
        \textbf{[3]} 
        \opc{Covenant-Check(3)}
-       \opc{OT-CSEQV}( $T$ ) 
+       \opc{CSEQV}( $T$ ) 
        \opc{CHASHV($H_b$)} 
       }
   }
  }
 
-\txname{AssertExitState} = \tuple{
+\txname{AssertExitState($i$)} = \tuple{
     \tuple{ \ioname{CommitExit\_out}} ,
     \tuple{ \ioname{Ready\_out},\ioname{CPFP\_out}}
 }
@@ -128,7 +128,7 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
  \tuple{ 
  \textbf{[1]} 
   \opc{Covenant-Check(1)} 
-  \opc{OT-CSEQV}( $T$ ) },
+  \opc{CSEQV}( $T$ ) },
  \tuple{ 
  \textbf{[2]} 
    \opc{Covenant-Check(2)} 
@@ -143,7 +143,7 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 
 \txname{FinalizeExit($i$)} = \tuple{
     % inputs
-    \tuple{ \ioname{Funds\_out}, \ioname{Ready\_out}},
+    \tuple{ \ioname{Initial\_Funds\_out}, \ioname{Ready\_out}},
     %outputs
     \tuple{
         \tuple{ $A_{BAL}(i)$, AliceAddress }
@@ -157,19 +157,19 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \txname{ExpireBobExit($i$)} = \tuple{
     % inputs
-    \tuple{ \ioname{CommitExit\_out} \ioname{Funds\_out}, } ,
+    \tuple{ \ioname{CommitExit\_out}, \ioname{Initial\_Funds\_out} } ,
     %outputs
     \tuple{
-        \tuple{ $A_{BAL}(i)$, AliceAddress }
+        \tuple{ $I_{BAL}$, AliceAddress }
     }
 }
 
 \txname{ExpireAliceExit($i$)} = \tuple{
     % inputs
-    \tuple{ \ioname{CommitExit\_out} \ioname{Funds\_out}, } ,
+    \tuple{ \ioname{CommitExit\_out}, \ioname{Initial\_Funds\_out} } ,
     %outputs
     \tuple{
-        \tuple{ $A_{BAL}(i)$, BobAddress }
+        \tuple{ $I_{BAL}$, BobAddress }
     }
 }
 
@@ -184,7 +184,6 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 \ioname{PunishAlice\_out} = \tuple{ $\epsilon$, {
           \tuple{ 
            \opc{Covenant-Check} 
-           \opc{DUP} 
            \opc{OT-CSIGV}( $K^A_{pub}$ )  
            \tuple{i} 
            \opc{LESSTHAN} 
@@ -194,8 +193,7 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 
 \txname{PunishAlice($i$)} = \tuple{
     % inputs
-    \tuple{ \ioname{Funds\_out}, \ioname{PunishAlice\_out}},
-
+    \tuple{ \ioname{Initial\_Funds\_out}, \ioname{PunishAlice\_out}},
     %outputs
     \tuple{
         \tuple{ $I_{BAL}$, BobAddress }
@@ -213,7 +211,6 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 \ioname{PunishBob\_out} = \tuple{ $\epsilon$, {
           \tuple{ 
            \opc{Covenant-Check} 
-           \opc{DUP} 
            \opc{OT-CSIGV}( $K^B_{pub}$ )  
            \tuple{i} 
            \opc{LESSTHAN} 
@@ -223,8 +220,7 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 
 \txname{PunishBob($i$)} = \tuple{
     % inputs
-    \tuple{ \ioname{Funds\_out}, \ioname{PunishBob\_out}},
-
+    \tuple{ \ioname{Initial\_Funds\_out}, \ioname{PunishBob\_out}},
     %outputs
     \tuple{
         \tuple{ $I_{BAL}$, AliceAddress }
