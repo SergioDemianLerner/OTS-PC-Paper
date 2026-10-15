@@ -607,6 +607,7 @@ In case of level 2 and level 3 privacy, watchtower dispute outputs do not change
     \item Total: 2405 wu
 \end{itemize}
 \subsection{HTLCs}
+\label{htlcs}
 
 We now show how we extend our OTS-PC construction to support routed payments using Hash Time-Locked Contracts (HTLC). HTLCs allow payment channels to be interconnected and to form the Lightning Network. When a transaction output is constrained by an HTLC, the funds can only be spend immediately by one party showing a pre-image of a hash, or by another party only after a timelock. To keep the explanation concise, we present transactions having a single HTLC, though the scheme can support any number of them. 
 
@@ -644,6 +645,43 @@ Informing about active HTLCs to watchtowers is straightforward. Alice can provid
 It is worth making explicit why the HTLC amounts must be carried by \txname{FinalizeExit($i$)}, and what that costs. Because an HTLC of a stale state must be seizable by the winner of a dispute, the HTLC outputs cannot become spendable before the dispute window has closed; and because the punishment transactions are pre-signed against \ioname{Initial\_Funds\_out}, whose outpoint is fixed at setup, the funds covering those HTLCs cannot leave that output earlier either. HTLC resolution and dispute resolution are therefore serialised.
 
 This is a consequence of the design choice that gives OTS-PC its $O(1)$ storage. In the Poon-Dryja construction the proof of fraud is a per-commitment revocation secret, which is self-validating and requires no further context: it can be placed first in every output script with no timelock at all, and the BOLT specification uses exactly that property to let an HTLC time out or be fulfilled while the penalty delay is still running. In OTS-PC the proof of fraud is a one-time signature together with evidence that a later state exists, and that evidence is a pre-signed transaction rather than a secret. One one-time key per channel buys constant storage; the price is the loss of a bearer proof of revocation, and with it the ability to decouple HTLC resolution from the dispute window.
+
+\subsection{Compatibility with the Lightning Network}
+\label{lncompat}
+
+OTS-PC channels interoperate with the Lightning Network through HTLCs: both constructions lock a payment to the same hash, and that shared lock is what makes a payment crossing the boundary atomic. Neither side needs to understand the other's channel format. What the two do not share is how quickly an HTLC can be resolved on chain, and that difference decides the shape of the integration.
+
+\subsubsection{The forwarding budget}
+
+A Lightning node that forwards a payment must learn the on-chain outcome of its outgoing HTLC before its incoming one expires, and the margin it has is the \texttt{cltv\_expiry\_delta} it advertises. In the Poon-Dryja construction that margin is small, because the HTLC output lives in the commitment transaction and is therefore publishable at once: the node needs one confirmation for the commitment transaction and one for the HTLC transaction. A widely deployed implementation budgets 39 blocks for the pair, assuming 18 blocks as the worst case for a single confirmation. Conventional per-hop deltas are of the same order, around 34 to 40 blocks.
+
+In an OTS-PC the same outcome is four confirmations away rather than two --- \txname{CommitExit}, \txname{AssertExitState}, \txname{FinalizeExit} and the spend of the HTLC output itself --- and the dispute window sits between the second and the third. The delta such a channel must advertise is therefore
+
+$$\Delta \;=\; T \;+\; 4c \;+\; g$$
+
+where $T$ is the dispute window, $c$ the assumed worst case for one confirmation and $g$ a small grace period. With $c=18$ and $g=3$, a channel advertising a conventional delta of 40 blocks cannot serve as a forwarding hop for \emph{any} choice of $T$: the four confirmations alone exceed the budget.
+
+\subsubsection{Sizing the dispute window}
+
+The dispute window is the only timelock left in the construction, and it has one requirement: it must accommodate the punishment, which is the two sequential transactions \txname{CommitPunishX} and \txname{PunishX}. That is the same two-confirmation budget the Lightning implementations assign to their own two-transaction path, so applying the same assumption gives $T \approx 40$ blocks and
+
+$$\Delta \;=\; 40 + 72 + 3 \;=\; 115 \text{ blocks.}$$
+
+Roughly three times the conventional per-hop delta, but well inside the per-hop maximum implementations accept and inside a typical total route budget. An OTS-PC channel can therefore act as a forwarding hop, at the cost of being a less attractive one for pathfinding. Choosing $T$ larger for additional dispute safety raises $\Delta$ one-for-one, and a window of a few hundred blocks takes the channel out of routable range altogether.
+
+\subsubsection{Gateways}
+
+The forwarding budget can be avoided entirely by not forwarding. A gateway node holds an OTS-PC channel on one side and a Lightning channel on the other, and bridges a payment by terminating one leg and originating the other, with both legs locked to the same payment hash.
+
+For a payment arriving from the Lightning Network, the gateway issues the invoice on behalf of the OTS-PC recipient, for a hash whose preimage only the recipient knows. It holds the incoming Lightning HTLC, offers the corresponding HTLC over the OTS-PC channel, and claims the Lightning leg with the preimage the recipient reveals by taking it. In the other direction the gateway accepts the OTS-PC HTLC, re-originates the payment over Lightning, and claims the OTS-PC HTLC with the preimage returned by the Lightning leg. In both directions the gateway can only collect by having paid, so it is never custodial.
+
+Because the gateway is an endpoint of the Lightning payment rather than a hop within it, the delta computed above does not apply to the route: only the gateway's own exposure is bounded by the dispute window, and it can price that risk. The cost is in addressing rather than in safety. An OTS-PC recipient is not independently reachable on the Lightning graph, and in the outbound direction the gateway learns the destination, which is the privacy of a trampoline hop rather than of an onion hop.
+
+A further reason favours this arrangement. A BOLT channel announcement must prove a P2WSH 2-of-2 funding output, whereas an OTS-PC funds into a Taproot covenant address, so OTS-PC channels cannot be announced in the Lightning gossip graph in any case. They are reached through route hints or blinded paths, which is precisely how a gateway advertises the recipients behind it.
+
+\subsubsection{Reducing the budget}
+
+The four confirmations are not reducible, but $T$ enters $\Delta$ only because the HTLC outputs are inside the punishable pot, as explained in section \ref{htlcs}. A construction that caps the value in flight and carves the corresponding amount out of the channel balance at setup would let the HTLC outputs settle on their own schedule while the balances remain subject to the dispute, bringing $\Delta$ close to the Lightning figure. Such a variant introduces a ceiling on in-flight HTLC value, which is not unusual --- Lightning channels already negotiate one --- and a griefing vector bounded by that ceiling. We leave its analysis to future work.
 
 \section{Summary}
 
