@@ -22,7 +22,8 @@
   al/.style={tx, fill=violet!18},
   bo/.style={tx, fill=magenta!13},
   wt/.style={tx, fill=gray!16},
-  fundo/.style={tx, fill=gray!12},
+  txout/.style={tx, rounded corners=0pt, dashed, draw=black!55,
+               fill=none},
   dead/.style={tx, fill=gray!8, draw=gray!60, text=gray!60},
   lbl/.style={font=\tiny, inner sep=1pt, align=center},
   note/.style={font=\tiny, align=left},
@@ -171,7 +172,7 @@ Figure ~\ref{fig:OTS-PC} illustrates the directed acyclic graph (DAG) of transac
 \node[bo, anchor=north] (pa)  at (8.0,-4.15) {PunishAlice($i$)};
 \node[al, anchor=north] (pb)  at (11.2,-4.15) {PunishBob($i$)};
 
-\node[fundo, anchor=north] (ifo) at (-0.9,-2.0) {Initial\_\\Funds\_out};
+\node[txout, anchor=north] (ifo) at (-0.9,-2.0) {Initial\_\\Funds\_out};
 
 \node[lbl, anchor=west] at (1.18,-0.95)  {Alice\_Exit\_out};
 \node[lbl, anchor=west] at (4.58,-0.95)  {Bob\_Exit\_out};
@@ -202,7 +203,7 @@ Figure ~\ref{fig:OTS-PC} illustrates the directed acyclic graph (DAG) of transac
 \draw[fl] (b1) -- (d1);  \draw[fl] (b2) -- (d2);
 \draw[fl] (b3) -- (d3);  \draw[fl] (b4) -- (d4);
 \end{tikzpicture}
-\caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC. Each owner has an independent exit path. All four bottom transactions spend \ioname{Initial\_Funds\_out}, so exactly one of them ever confirms.}
+\caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC. Each owner has an independent exit path. All four bottom transactions spend \ioname{Initial\_Funds\_out}, so exactly one of them ever confirms. Throughout this paper a transaction is a rounded filled box and an output is a dashed rectangle.}
 \label{fig:OTS-PC}
 \end{figure}
 
@@ -302,7 +303,7 @@ In figure ~\ref{fig:OTS-PC-EXAMPLE} we show an example of an onchain dispute whe
 \node[bo, anchor=north] (cp) at (5.4,-1.1) {CommitPunishAlice(100)};
 \node[bo, anchor=north] (pa) at (5.4,-2.6) {PunishAlice(100)};
 
-\node[fundo, anchor=north] (ifo) at (8.6,0) {Initial\_\\Funds\_out};
+\node[txout, anchor=north] (ifo) at (8.6,0) {Initial\_\\Funds\_out};
 
 \draw[fl] (ac) -- (aa);
 \draw[flx] (aa) -- node[note, right=1mm, pos=0.3, text=gray!70] {blocked: needs the\\dispute window} (af);
@@ -346,17 +347,17 @@ An asymmetric variant would keep the same two paths and change what they pay: th
 \node[lbl, anchor=west] at (1.28,-0.92) {Initial\_Funds\_out};
 \node[lbl, anchor=west] at (6.68,-0.92) {Alice\_Exit\_out};
 
-\node[fundo, anchor=north] (ifo) at (1.2,-1.25) {Initial\_Funds\_out};
+\node[txout, anchor=north] (ifo) at (1.2,-1.25) {Initial\_Funds\_out};
 \node[al, anchor=north]    (ace) at (6.6,-1.25) {AliceCommitExit($i$)};
 \node[al, anchor=north]    (aas) at (3.9,-2.70) {AliceAssertExitState($i$)};
 
-\node[bo, anchor=north] (bs)  at (1.0,-4.05) {$B_{BAL}(i)$ to Bob};
-\node[al, anchor=north] (rem) at (5.4,-4.05) {AliceRemainder\_out($i$)};
+\node[txout, anchor=north] (bs)  at (1.0,-4.05) {$B_{BAL}(i)$ to Bob};
+\node[txout, anchor=north] (rem) at (5.4,-4.05) {AliceRemainder\_out($i$)};
 \node[al, anchor=north] (af)  at (3.5,-5.35) {AliceFinalizeExit($i$)};
 \node[bo, anchor=north] (pun) at (7.8,-5.35) {PunishAlice($i$,$j$)};
-\node[al, anchor=north] (ao)  at (3.5,-6.68) {$A_{BAL}(i)$ to Alice};
+\node[txout, anchor=north] (ao)  at (3.5,-6.68) {$A_{BAL}(i)$ to Alice};
 
-\node[lbl, anchor=north, text=gray!60] at (1.0,-4.65) {immediate};
+\node[lbl, anchor=north, text=gray!60] at (1.0,-4.75) {immediate};
 \node[lbl, anchor=west,  text=gray!60] at (3.6,-6.15) {after timelock};
 \node[lbl, anchor=north, text=red!65]  at (7.8,-6.02) {one per $(i,j)$ pair};
 
@@ -460,7 +461,7 @@ Watchtowers receive periodic punishment transactions together with the transacti
 
 \node[wt, anchor=north] (cb) at (1.4,-1.25) {WTB-CommitPunishAlice($i$)};
 \node[wt, anchor=north] (ca) at (7.0,-1.25) {WTA-CommitPunishBob($i$)};
-\node[fundo, anchor=north] (ifo) at (4.2,-1.25) {Initial\_\\Funds\_out};
+\node[txout, anchor=north] (ifo) at (4.2,-1.25) {Initial\_\\Funds\_out};
 \node[wt, anchor=north] (pb) at (1.4,-2.55) {WTB-PunishAlice($i$)};
 \node[wt, anchor=north] (pa) at (7.0,-2.55) {WTA-PunishBob($i$)};
 
@@ -667,10 +668,10 @@ In case an old update state is published and there is a dispute, the funds cover
 \node[lbl, anchor=north, align=center, text=gray!65] at (0,-0.75)
   {inputs:\\ Initial\_Funds\_out\\ \textit{X}Ready\_out};
 
-\node[al, anchor=west] (oa) at (2.6,-0.15) {$A_{BAL}(i)$ to Alice};
-\node[bo, anchor=west] (ob) at (2.6,-0.85) {$B_{BAL}(i)$ to Bob};
-\node[tx, anchor=west, fill=orange!22] (h1) at (2.6,-1.75) {AB HTLC};
-\node[tx, anchor=west, fill=orange!22] (h2) at (2.6,-2.85) {BA HTLC};
+\node[txout, anchor=west] (oa) at (2.6,-0.15) {$A_{BAL}(i)$ to Alice};
+\node[txout, anchor=west] (ob) at (2.6,-0.85) {$B_{BAL}(i)$ to Bob};
+\node[txout, anchor=west] (h1) at (2.6,-1.75) {AB HTLC};
+\node[txout, anchor=west] (h2) at (2.6,-2.85) {BA HTLC};
 
 \node[lbl, anchor=west] (h1a) at (5.0,-1.45) {(1) hash-lock preimage + Bob sig $\rightarrow$ Bob};
 \node[lbl, anchor=west] (h1b) at (5.0,-2.05) {(2) absolute timelock + Alice sig $\rightarrow$ Alice};
