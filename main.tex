@@ -313,35 +313,42 @@ An asymmetric variant would keep the same two paths and change what they pay: th
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}[x=1cm, y=1cm]
-\node[setupb, minimum width=101mm, anchor=north west] (su) at (-0.3,0) {Setup};
-\node[lbl, anchor=south] at (2.0,-1.12) {Alice\_Exit\_out};
-\node[lbl, anchor=south] at (7.3,-1.12) {Bob\_Exit\_out};
+\node[setupb, minimum width=101mm, anchor=north west] (su) at (-0.5,0) {Setup};
+\node[lbl, anchor=south] at (1.2,-1.12) {Initial\_Funds\_out};
+\node[lbl, anchor=south] at (6.6,-1.12) {Alice\_Exit\_out};
 
-\node[al, anchor=north] (ac) at (2.0,-1.25) {AliceCommitExit($i$)};
-\node[bo, anchor=north] (bc) at (7.3,-1.25) {BobCommitExit($i$)};
-\node[al, anchor=north] (aa) at (2.0,-2.45) {AliceAssertExitState($i$)};
-\node[bo, anchor=north] (ba) at (7.3,-2.45) {BobAssertExitState($i$)};
+\node[fundo, anchor=north] (ifo) at (1.2,-1.25) {Initial\_Funds\_out};
+\node[al, anchor=north]    (ace) at (6.6,-1.25) {AliceCommitExit($i$)};
+\node[al, anchor=north]    (aas) at (3.9,-2.70) {AliceAssertExitState($i$)};
 
-\node[bo, anchor=north] (bs) at (0.75,-3.75) {$B_{BAL}(i)$ to Bob};
-\node[al, anchor=north] (af) at (3.3,-3.75) {AliceFinalizeExit($i$)};
-\node[al, anchor=north] (as2) at (6.0,-3.75) {$A_{BAL}(i)$ to Alice};
-\node[bo, anchor=north] (bf) at (8.6,-3.75) {BobFinalizeExit($i$)};
+\node[bo, anchor=north] (bs)  at (1.0,-4.05) {$B_{BAL}(i)$ to Bob};
+\node[al, anchor=north] (rem) at (5.4,-4.05) {AliceRemainder\_out($i$)};
+\node[al, anchor=north] (af)  at (3.5,-5.35) {AliceFinalizeExit($i$)};
+\node[bo, anchor=north] (pun) at (7.8,-5.35) {PunishAlice($i$,$j$)};
+\node[al, anchor=north] (ao)  at (3.5,-6.68) {$A_{BAL}(i)$ to Alice};
 
-\node[lbl, anchor=north, text=gray!60] at (0.75,-4.35) {immediate};
-\node[lbl, anchor=north, text=gray!60] at (3.3,-4.35)  {after timelock};
-\node[lbl, anchor=north, text=gray!60] at (6.0,-4.35)  {immediate};
-\node[lbl, anchor=north, text=gray!60] at (8.6,-4.35)  {after timelock};
+\node[lbl, anchor=north, text=gray!60] at (1.0,-4.65) {immediate};
+\node[lbl, anchor=north, text=gray!60] at (3.5,-6.02) {after timelock};
+\node[lbl, anchor=north, text=red!65]  at (7.8,-6.02) {one per $(i,j)$ pair};
 
-\draw[fl] (2.0,-0.62) -- (ac.north);  \draw[fl] (7.3,-0.62) -- (bc.north);
-\draw[fl] (ac) -- (aa);  \draw[fl] (bc) -- (ba);
-\draw[fl] (aa.south) -- (bs.north);   \draw[fl] (aa.south) -- (af.north);
-\draw[fl] (ba.south) -- (as2.north);  \draw[fl] (ba.south) -- (bf.north);
-\node[note, anchor=north west, text width=88mm] at (-0.3,-4.95)
-  {In this variation each exit splits the balances at \txname{AssertExitState}: the party that did \emph{not} initiate receives its share immediately, while the initiator's own share is delayed. The punishment branch is unchanged and is omitted here.};
+\draw[fl] (1.2,-0.62) -- (ifo.north);
+\draw[fl] (6.6,-0.62) -- (ace.north);
+\draw[fl] (ifo.south) -- (aas.north);
+\draw[fl] (ace.south) -- (aas.north);
+\draw[fl] (aas.south) -- (bs.north);
+\draw[fl] (aas.south) -- (rem.north);
+\draw[fl] (rem.south) -- (af.north);
+\draw[fl, red!55] (rem.south) -- (pun.north);
+\draw[fl] (af) -- (ao);
+
+\node[note, anchor=north west, text width=100mm] at (-0.5,-7.35)
+  {Alice's exit is shown; Bob's is the mirror image. To pay Bob immediately, \txname{AliceAssertExitState($i$)} must spend \ioname{Initial\_Funds\_out}, so the punishable remainder becomes an output of a per-state transaction instead of an output of \txname{Setup}. The punishment can no longer be pre-signed once per state.};
 \end{tikzpicture}
 \caption{The transaction Direct Acyclic Graph (DAG) for an OTC-PC with asymmetric exits}
 \label{fig:OTS-PC-ASYNC}
 \end{figure}
+
+Beyond the economics discussed below, this variation also costs the construction its $O(1)$ storage, and for a structural reason. To pay $Y$ immediately, \txname{XAssertExitState($i$)} must spend \ioname{Initial\_Funds\_out}, so the punishable remainder no longer sits at an outpoint fixed by \txname{Setup}: it becomes an output of \txname{XAssertExitState($i$)}, and which $i$ that is depends on the state the cheating owner chooses to publish. A punishment transaction signed at state $i$ cannot name an outpoint that the counterparty will only create later, so a separate punishment must be pre-signed for every pair of states, and the owners must retain $O(N)$ of them rather than only the latest. In the symmetric design the comparison \opc{LESSTHAN} inside \ioname{PunishX\_out} covers every stale $j$ with a single transaction precisely because \ioname{Initial\_Funds\_out} does not move until the dispute is settled.
 
 It seems beneficial that no party can impose a delay on the other party's access to her funds when exiting unilaterally. However, this apparent benefit does not make the scheme fairer: By just stopping communicating, one party forces the other to unilaterally exit, imposing the same delay on the other party. The fact that one party can impose a delay on the other party's ability to access her funds is inevitable, and exists in any protocol based on fraud-proofs. Therefore, the asymmetric exit does not reduce the financial cost in the worst case. Instead, under certain conditions, it creates a prisoner's dilemma in which neither party is incentivized to cooperate to close a channel. 
 
