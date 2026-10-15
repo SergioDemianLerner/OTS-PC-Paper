@@ -1,0 +1,439 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[british]{babel}
+\usepackage{amsmath, amsfonts, mathtools, amssymb, graphicx, float, lipsum, xcolor, hyperref, authblk, multicol, framed, amsthm}
+\usepackage{algorithm, algpseudocode}
+\hypersetup{hidelinks}
+\setlength\parindent{0pt}
+\setlength{\parskip}{1em}
+\usepackage[left=2.00cm, right=2.00cm, top=2.00cm, bottom=2.00cm]{geometry}
+\graphicspath{{./figures/}}
+
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage{tabularx}
+\usepackage{adjustbox}
+\usepackage{longtable}
+\usepackage{rotating}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{rmk}{Remark}[section]
+\newtheorem{example}{Example}[section]
+\newtheorem{definition}{Definition}[section]
+\DeclareMathOperator{\AVP}{AVP}
+% \newcommand{\bigO}[1]{\mathcal{O}\!\left(#1\right)}
+\newcommand{\bigO}{\mathcal{O}}
+
+\title{OTS-PC: OTS-based Payment Channels for the Lightning Network}
+\author[1,2]{Sergio Demian Lerner\thanks{\href{mailto:sergio@fairgate.io}{sergio@fairgate.io}}\hspace{3pt}} % \author[]{}
+
+\author[1]{Ariel Futoransky\thanks{\href{mailto:futo@fairgate.io}{futo@fairgate.io}}\hspace{3pt}} % \author[]{}
+\affil[1]{Fairgate Labs} % \affil[]{}
+\affil[2]{Rootstock Labs}
+\date{}
+\newcommand{\macroName}{content}
+
+\usepackage{xspace}
+
+%\newcommand{\txname}[1]{$\mathsf{#1}$}
+\newcommand{\txname}[1]{\texttt{#1}}
+\newcommand{\ioname}[1]{\texttt{#1}}
+\newcommand{\opc}[1]{\texttt{#1}} % opcode
+
+%\newcommand{\tuple}[1]{$\langle \text{#1} \rangle$}
+%\newcommand{\tuple}[1]{\(\langle\) #1 \(\rangle\)}
+\newcommand{\tuple}[1]{\(\langle\) #1 \(\rangle\)}
+
+\begin{document}
+%\tableofcontents
+\maketitle
+
+\begin{abstract}
+We present a new type of bidirectional payment channel based on One-Time Signatures on state sequence numbers. This new construction is simpler than the Poon-Dryja construction, but provides a number of benefits such as $O(1)$ storage per channel, minimal information leakage, and compatibility with Lightning Network routing.
+
+\end{abstract}
+% ADD: 
+% Scheme where the resulting payment can have a change address that goes back to the set of surviving operators, based on multiple rounds.
+% Scheme where the surviving operators are chosen in O(1) with a circuit that produces 2^N signatures
+% Scheme where the surviving operators are chosen in O(logN) when each circuit 
+% exposes a LINEAR number of signatures. Is this possible ?
+% Let's say in the the first round participants expose 1 signature, 
+% except participant i who exposes 2^N signatures. Participant i can go away ? 
+% The next round, participant (i+1) exposes 2^(N-1) signatures, and so on.
+% The total number of signatures exposed is 2^(N+1) instead of N*2^N
+
+% Another possibility is to group the participants. K=Log(N) groups. Each group has N/logN participants 
+% For each group, they create 2^(N-LogN) signatures each. This is a "round". After the round, each group
+% creates a transaction with the surviving parties. This doesn't work.
+
+% What does work is that the parties pre-compute with SIGHASH_SINGLE 2^N outputs of the payour transaction with a fixed change (for example, if the vault has Q bitcoins and the payment is p, then the change is (Q-p))
+% This output must be included in the payout transaction. 
+
+% signatures
+
+
+% the first signature keeps participant i, the second, removes him.
+% If participants other than 2 fail, the next round starts over, but participant i not enymore.
+
+% If participant 
+\section{Introduction}
+
+Since its inception in 2009, Bitcoin~\cite{nakamoto2008bitcoin} has demonstrated that decentralized consensus can support a global monetary system without trusted intermediaries. However, the protocol’s throughput and latency limitations—roughly seven transactions per second and ten-minute block intervals—pose fundamental constraints on scalability. These parameters are essential to preserve decentralization and security, yet they make Bitcoin unsuitable for high-frequency payments or micro-transactions if used directly on-chain.
+
+To overcome these limitations, researchers proposed off-chain payment channels, which allow two parties to conduct multiple transactions without broadcasting each to the blockchain. Only opening and closing the channel require on-chain transactions, while intermediate state updates are exchanged privately and secured by Bitcoin’s scripting primitives. This concept underpins the Lightning Network~\cite{poon2016bitcoin}, a second-layer protocol that links payment channels to a routed network, allowing instant low-fee payments between participants who do not need to share direct channels.
+
+The Lightning Network has proven that layer two constructions can extend Bitcoin’s scalability by several orders of magnitude, while preserving its security guarantees through cryptographic enforcement and dispute mechanisms. However, current payment channel architectures still face limitations: they depend on active monitoring (watchtowers~\cite{dryja2016unlinkable,pisa}), require prefunded liquidity, and involve complex time-locked contracts that constrain usability and capital efficiency.
+
+The notion of payment channels in Bitcoin dates even back to the early versions of the protocol: In the original implementation, Satoshi Nakamoto allowed unconfirmed transactions to be replaced by new versions if all input sequence numbers (nSequence) were increased, allowing multiple interim state changes until a final transaction was broadcast~\cite{nakamoto2010_nsequence}.
+Payment channels evolved from the initial ideas, and the Poon-Dryja~\cite{poon2016bitcoin} design, now standardized in the BOLT specification~\cite{bolts}, powers the Lightning Network. Improvements continued with new protocols such as Eltoo~\cite{decker2018eltoo},   Outpost~\cite{outpost} or Sleepy~\cite{sleepy}, further reducing the requirements on watchtowers. The latest protocols achieve bidirectional payments, provide HTLCs, infinite-updates and lightweight watchtowers with acceptable privacy. However, Lightning Network channels do not provide the best combination of features: they require peers to store $O(log(N))$ hashes for $N$ channel updates, but watchtowers still need to store $O(N)$ data. In contrast, Outpost and our proposed protocol require only $O(1)$ storage for peers and watchtowers. Regarding channel functionality,  lightning channels do not provide full privacy of the payment channel updates in the presence of watchtowers. 
+
+From an engineering and practical security point of view, the state of the payment channels is unsatisfactory: the Poon-Dryja design is complex, as is its number of transactions, protocol states, and state transitions. Historically, numerous bugs, incompatibilities with BOLT standards, and security vulnerabilities have been discovered in lightning channel implementations (for example, CVE-2020-26895 in LND). A simpler payment channel design that provides all existing features is enormously valuable. 
+
+In 2018, Osuntokun presented the idea of \textit{Signed Sequence Numbers (SSN)} ~\cite{osuntokun2018hardeninglightning}, a method to reduce the complexity of state revocations and state storage requirements for Lightning Network nodes, using aggregated ECDSA signatures of sequence number commitments embedded in unilateral exit transactions. To the best of our knowledge, Osuntokun's SSN scheme has not been formalized. 
+
+In this work, we present OTS Payment Channels (OTS-PCs). OTS-PCs solve the above-mentioned problems and provide the same benefits of SSNs by using hash-based One-Time Signatures. One-time signatures are possible in Bitcoin using the \txname{OP\_HASH} opcode (or any of the other hashing opcodes). Unlike SSNs, our method does not require embedded commitments.  
+
+The core concept behind OTS-PCs is that each new state has a monotonically increasing sequence number, and the issuer of each state-committing transaction must sign the state sequence number with his OT private key before a payout transaction can be issued in the blockchain to distribute the funds. Once a party signs a state sequence number, the other party is given a window to challenge: if the signed sequence number is not the last, the other party uses a revocation path of the transaction graph to punish the first party by collecting all the funds in the channel.
+
+To make OTS-PCs compatible with the Lightning Network, we show how OTS-PCs can support Hash-Time Locked Contracts (HTLC). We demonstrate how we can build lightweight participants and privacy-preserving watchtowers that only need to store a constant amount of information per payment channel. However, to maintain payment privacy, we do not provide a protocol for watchtowers to monitor HTLC timelocks after a successful unilateral exit.
+
+OTS-PC channels can be extended to multi-party channels (including channel factories) easily because they have a high amount of symmetry. However, this extension is out of the scope of our work.
+
+\section{Specification}
+
+An OTS-PC is a protocol that allows two parties (Alice and Bob) to manage a payment channel between them. We call Alice and Bob the \textit{owners} of the channel. The payment channel resembles a shared account where the owners can dynamically re-balance the funds between them. Both owners initially deposit bitcoins in the channel, generally, but not necessarily, in equal amounts. Optional auxiliary parties, $W_a$ and $W_b$, act as watchtowers for Alice and Bob, respectively. The payment channel is defined by 3 protocols: setup, state update, and close.
+
+An OTS-PC \textit{channel state} is defined as a funds balance between Alice and Bob at a certain time, and all open HTLC contracts with their properties (more on HTLCs later). Each channel state has a sequence number $i$, which increments (by one or more) with every channel state update. When the owners agree to move to the next state (e.g., rebalance the shared account), they must co-sign multiple connected transactions. To sign the transactions, the parties can use a 2-out-of-2 multisig or the MuSig2~\cite{musig2} scheme. MuSig2 is preferred, as it reduces the on-chain footprint and minimizes information leakage from published transactions. The owners also revoke the previous channel state by creating and signing a set of punishment transactions. 
+
+The protocol state should not be confused with the channel state. The protocol goes through many protocol state transitions to change the channel state. Protocol participants can perform one of two actions: issue a transaction on the blockchain or send a message directly to another actor (offchain). To send and receive messages offchain, the two owners establish a peer-to-peer authenticated connection. Although the protocol defines which actions each participant can take in every state of the protocol, the publication of a transaction on the blockchain is an asynchronous event. The protocol must consider blockchain events in all states. Therefore, OTS-PC protocol state changes depending on the messages received (which can be informative or just ACKs from a previous message sent) and the transactions issued on the blockchain. Note that the protocol state is not fully determined by onchain transactions.
+
+When one or both channel owners want to distribute the committed funds, they can close the channel. A channel can be closed cooperatively or unilaterally. A cooperative closure requires the owners to simply sign a transaction and wait for this transaction to be mined.
+
+A unilateral close occurs when the other party is irresponsible to a party's close request. Let us assume that Alice wants to close the channel and Bob refuses to.
+To unilaterally close the channel, Alice does so by signing the sequence number $i$, using a one-time signature (OTS) scheme and her one-time private key. This sequence number defines the state that Alice claims should determine the final balance distribution between her and Bob. 
+
+If Alice uses an outdated state — say she signs $j$, with $j < i$ — a dispute mechanism is triggered to penalize her. The mechanism is based on issuing onchain two previously cosigned punishment transactions (a.k.a. revocation of old states). The first is a commitment to punish and the second is the punishment itself. The commitment transaction has an connector output that, to be spent, requires presenting as a witness a revoked sequence number signed by Alice with her OTS key. Therefore, Bob simply needs to present the OTS-signed value $j$ previously signed by Alice.  A Bitcoin script verifies the one-time signature of $j$ and checks whether $j < i$, for a value $i$ that is embedded in the Bitcoin script.  If the $j < i$ condition holds, the punishment transaction is valid and Bob can claim the funds in the channel, including all payments affected by HTLCs.
+
+
+\subsection{Transaction DAG}
+
+Figure ~\ref{fig:OTS-PC} illustrates the directed acyclic graph (DAG) of transactions created by the protocol. Some of these transactions are recreated at each channel state update. Only the \txname{Setup} transaction is always published on-chain; other transactions are published only as needed.
+
+\begin{itemize}
+    \item Violet boxes: Transactions published by Alice
+    \item Pink boxes: Transactions published by Bob
+    \item Orange boxes: Transactions re-created with every state update
+    \item Gray box: A transaction issued by a watchtower
+    \item Green box: The initial funding transaction that either owner can issue.
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC.jpg}
+\caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC}
+\label{fig:OTS-PC}
+\end{figure}
+
+
+When Alice publishes \txname{CommitExit(j)}, she commits to the sequence number $j$. Also, to issue the transaction \txname{CommitExit(j)} Alice must also reveal a secret preimage $P_a$, which enables Bob to timeout Alice if she does not continue with the unilateral-exit subprotocol. Alice or Bob could then OTS-sign the value $j$ in \txname{AssertExitState(j)}. Normally, if Alice has decided to unilaterally exit, then she is incentivized to sign the \txname{AssertExitState(j)} transaction to continue with her plan. 
+
+We must consider whether Bob could disrupt Alice’s plans by issuing the \txname{AssertExitState(j)} transaction himself and signing $j$ his one-time key, instead of Alice's. If Bob learns that $j \neq i$ ($i$ being the latest state sequence number), he should refrain from OT-signing and issuing \txname{AssertExitState(j)} — he will be punished by Alice. Instead, Bob must wait for Alice to OTS-sign $j$. If Alice does not sign $j$, Bob gets all funds in the channel by issuing a timeout transaction \txname{ExpireAliceExit(j)}. Bob can timeout Alice because he has learned $P_a$, and the preimage $P_a$ is required to issue the transaction \txname{ExpireAliceExit(j)}.  If $j = i$, Bob can sign and publish \txname{AssertExitState(i)} safely, which will not affect the integrity of the protocol. However, Alice is still much more incentivized to do so, since if she does not, she can be punished by timeout.
+
+In appendix \ref{formalization} we describe each transaction of the DAG.
+
+\subsection{Setup}
+
+\begin{itemize}
+    \item Each owner chooses a hidden preimage ($P_a$ by Alice and $P_b$ by Bob) and sends the other the corresponding hash $H_a$ and $H_b$ (such that $H_a = H(P_a)$ and $H_b = H(P_b)$). These are the hashes and secrets used to enable timeouts for Alice and Bob.
+ 
+    \item Each owner generates an OTS key pair: ($K^A_{priv},K^A_{pub}$) for Alice and ($K^B_{priv},K^B_{pub}$) for Bob. These keys are used to sign a sequence value $i$ in the case of unilateral exit. 
+    
+    \item The public keys $K^A_{pub}$  and $K^B_{pub}$ are exchanged.
+ 
+    \item Both parties construct the \txname{Setup} transaction (a.k.a. 'Funding transaction') by providing the UTXOs containing the initial funds, building, and signing the transaction and issuing it on the blockchain.
+
+    \item Both parties create the initial state-committing transactions:
+    \begin{itemize}
+        \item \txname{FinalizeExit(0)}, 
+        \item \txname{AssertExitState(0)}, 
+        \item \txname{CommitExit(0)}. 
+    \end{itemize}
+    
+    These define an initial exit path where each owner can withdraw their initial deposit. At this point, no revocation messages exist, so challenges are not possible.
+\end{itemize}
+
+The one-time public keys $K^A_{pub}$ and $K^B_{pub}$ are shown in figures as $KA$ and $KB$.
+The parties can decide the allowed range for encoding and signing $i$. For example, they can use a 32-bit unsigned type to encode $i$, allowing up to 4 billion state updates. Assuming 10 updates per second, this represents 4971 days of continuous payments.  Depleting the number of channel states would require 4971/365 = 13.6 years. 
+
+\subsection{Committing to a New State}
+
+When a payment occurs (e.g., Alice pays Bob), both parties must advance to a new state and revoke the previous one. Without loss of generality, let us assume that Alice is paying Bob an amount $a$, and less assume that the payment does not create more HTLCs. Bob has a monetary incentive to complete the protocol equal to $a + z_b$. The value $z_b$ represents Bob's cost of closing the channel and opening a new one. Alice's incentive to collaborate on the update is just $z_a$, her cost for closing and opening a new channel. Because, in general $z_a \approx z_b$, Bob has a higher incentive to move to the new channel state.
+
+To simplify the explanation, let us assume that the parties have already agreed on the amount $a$ to be transacted, and all pre-existing HTLCs (if any) are closed in the new channel update.
+
+We also group the transactions into sets for simplicity.  The set \txname{CommitPunishX(i)} contains all commit-to-punish transactions: 
+\begin{itemize}
+    \item \txname{CommitPunishBob(i)},
+    \item \txname{CommitPunishAlice(i)},
+    \item \txname{WTA-CommitPunishBob(i)},
+    \item \txname{WTB-CommitPunishAlice(i)}.
+\end{itemize}  
+
+The \txname{PunishX(i)} set contains all the punish transactions: 
+\begin{itemize}
+    \item \txname{PunishBob(i)}, 
+    \item \txname{PunishAlice(i)},
+    \item \txname{WTA-PunishBob(i)},
+    \item \txname{WTB-PunishAlice(i)}.
+\end{itemize}
+These are the channel update protocol steps:
+
+\begin{enumerate}
+    \item These transactions are built by each party, but kept unsigned:
+    \begin{enumerate}
+    \item \txname{ExpireAliceExit(i)}, \txname{ExpireBobExit(i)}
+    \item \txname{CommitExit(i)}, \txname{FinalizeExit(i)} and \txname{AssertExitState(i)},
+    \item \txname{CommitPunishX(i)} set
+    \item \txname{PunishX(i)} set
+    \end{enumerate}
+    
+    \item Watchtower-related transactions are only created if watchtowers are used.
+    
+    \item All newly built transactions, except for the commit set \txname{CommitPunishX(i)}, are signed by both parties, and the signatures are exchanged. If any of the signatures are incorrect, the state update is aborted, and the parties will attempt to close the channel, either cooperatively or unilaterally. The same abortion mechanism occurs if any party deviates from the expected protocol in the following steps.
+    
+    \item Bob signs \txname{CommitExit(i)} and sends it to Alice. Now Alice can exit with either the old or the new state without being punished, but Bob can only use the old state to exit. Since Bob received funds, he is motivated to proceed.
+    
+    \item Alice signs \txname{CommitPunishAlice(i)} / \txname{WTB-CommitPunishAlice(i)} and sends the signatures to Bob. Now Alice can only issue the new state without being penalized, while Bob can issue only the old state.
+    
+    \item Alice cosigns \txname{CommitExit(i)} and sends it to Bob. Now Bob could use either the old or the new state without being punished, but the new state benefits him more, so he is incentivized to continue.
+    
+    \item Bob signs \txname{CommitPunishBob(i)} / \txname{WTA-CommitPunishBob(i)} and sends the signatures to Alice. Now both Alice and Bob can issue the new state, but if they try to issue the old state they can be punished.
+    
+    \item Bob signs Alice’s punishment transactions: 
+    \begin{itemize}
+        \item \txname{WTB-CommitPunishAlice(i)}
+        \item \txname{WTB-PunishAlice(i)} 
+    \end{itemize}
+    These transactions are sent to his watchtower WTB (Alice does not need them). If no specific dispute path is created for Bob’s watchtower, then Bob can send the \txname{CommitPunishAlice(i)} and \txname{PunishAlice(i)} transactions to his watchtower instead.
+    
+    \item Alice signs and forwards the punishment transactions to her watchtower, as Bob did with his own. At this point, neither party can safely use the old state.
+\end{enumerate}
+
+\subsection{Example}
+
+In figure ~\ref{fig:OTS-PC-EXAMPLE} we show an example of an onchain dispute where Alice tries to cheat by attempting to perform a unilateral exit bringing and old state j=50. Bob stops Alice from issuing the \txname{FinalizeExit(50)} transaction by issuing the \txname{CommitPunishAlice(100)} and \txname{PunishAlice(100)} transactions. 
+
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-Example.jpg}
+\caption{The transactions involved in a dispute. Alice tries to unilaterally exit with state $j=50$, but Bob punished her using the punishment transactions created in state $i=100$}
+\label{fig:OTS-PC-EXAMPLE}
+\end{figure}
+
+
+
+\subsection{Liveness Guarantees During Unilateral Exists}
+
+To prevent a party from stalling the protocol during a mid-unilateral exit, the transaction graph includes a timeout mechanism. If Alice issues \txname{CommitExit(j)} for an old state $j$ but delays or refuses to issue the corresponding \txname{AssertExitState(j)} on time, Bob can punish her by publishing \txname{ExpireAliceExit(j)}, which awards him all funds in the channel as a penalty for Alice's behavior. 
+
+If Alice issues \txname{CommitExit(j)} for the last state $j$ and stalls, Bob can decide to perform a cooperative exit by publishing \txname{AssertExitState(j)} himself or issue the timeout transaction (the rational choice).
+The correct timelock is selected using preimages  ($P_a$ or $P_b$) which Alice/Bob reveal when they publish the \txname{CommitExit(j)} transaction. This ensures that if one party starts this process, only the other party can enforce the timeout.
+
+\subsection{Symmetric vs Asymmetric Exists}
+
+In the Lightning Network payment channel specification, if a party  (e.g. Alice) attempts a unilateral exit based on a state $j$, she gives Bob immediate access to his share of the funds according to the balances associated with the state $j$, but Alice does not get immediate access to her share. This is known as an asymmetric exit. The OTS-PCs design presented so far does not attempt such an asymmetry. Symmetrical exit is not only more fair, but is also simpler to implement. 
+
+First, we note that this is not a deficiency of the OTS-PCs mechanism by itself: the presented scheme could be modified to use asymmetric exits by adding two parallel,  mutually exclusive unilateral exit paths, one for each party (e.g., one starting with \txname{AliceCommitExit(i)} and \txname{BobCommitExit(i)} transactions). The exit path for the party $X$ would give the other party $Y$ immediate access to his portion of the funds in the payment channel. Figure ~\ref{fig:OTS-PC-ASYNC} depicts this design variation.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-ASYNC.jpg}
+\caption{The transaction Direct Acyclic Graph (DAG) for an OTC-PC with asymmetric exits}
+\label{fig:OTS-PC-ASYNC}
+\end{figure}
+
+It seems beneficial that no party can impose a delay on the other party's access to her funds when exiting unilaterally. However, this apparent benefit does not make the scheme fairer: By just stopping communicating, one party forces the other to unilaterally exit, imposing the same delay on the other party. The fact that one party can impose a delay on the other party's ability to access her funds is inevitable, and exists in any protocol based on fraud-proofs. Therefore, the asymmetric exit does not reduce the financial cost in the worst case. Instead, under certain conditions, it creates a prisoner's dilemma in which neither party is incentivized to cooperate to close a channel. 
+
+Table ~\ref{tab:dilemma} shows the payouts for all exit cases when both parties have approximately the same amount of funds assigned to them. We define $p$ as the opportunity cost imposed by the delay to access funds, $u$ as the fees required to pay for the transactions in the unilateral exit path, and $c$ as the fees that must be paid for a cooperative close. 
+
+
+\begin{table}
+    \centering
+    \begin{tabular}{|c|c|c|}
+    \hline
+         & Alice cooperates &  Alice does not cooperate\\
+         \hline
+       Bob Cooperates  & 
+       \shortstack{Alice: $c/2$ \\ Bob: $c/2$} & \shortstack{Alice:  0 \\ Bob: $-(p+u)$} \\
+       \hline
+       Bob does not cooperate  & 
+       \shortstack{Alice: $-(p+u)$ \\ Bob: 0} & 
+       \shortstack{Alice: $-(p+u)/2$ \\ Bob: $-(p+u)/2$}  \\
+       \hline
+    \end{tabular}
+    \caption{A Prisoner's Dilemma}
+    \label{tab:dilemma}
+\end{table}
+
+As long as $(p+u) > c$, this payout table represents a prisoner's dilemma, and the rational strategy of both parties is to expect the other party to close the channel unilaterally first.
+
+In case one party owns a very small amount of channel funds, comparable to the cooperative closing fees, then that party ceases to have any incentive to misbehave.
+
+The best way to avoid the prisoner's dilemma is to make the unilateral exit symmetric.
+Let us assume Bob is the participant that unilaterally exits. Other unsatisfactory solutions may be the following:
+\begin{enumerate}
+
+    \item In Bob's unilateral exit transactions, reduce Alice's balance in $c_b$ and reassign this value to Bob. Since the states committing transactions are created in advance, the downside of this solution is that the value $c_b$ assigned may not match the actual cost $c$ in fees at the time of exit.
+    
+    \item Impose a dynamic cost of $c$ on Alice to retrieve the funds.  We add to the \txname{AliceExit(i)} transaction a time-locked path that returns $c_b$ funds to Bob, where $c_b$ is chosen so that ($c_b > c$) even under blockchain congestion. Consuming Alice’s funds from the \txname{AliceExit(i)} transaction must use approximately the same number of virtual bytes as the cooperative exit transaction, so it costs approximately $c$. In this way, Alice is incentivized to transfer her funds from \txname{AliceExit(i)} quickly, so she ends up paying the cost $c$ at the time of exit and not $c_b$. The downside of this solution is that Alice is forced to react before a certain time limit, even if the unilateral exit attempt was not malicious. 
+\end{enumerate}
+
+
+
+\subsection{Closing the Channel}
+
+If both parties agree to close the channel, they co-sign a payment transaction that spends directly from the Setup transaction,  distributing the funds accordingly. If funds remain in intermediate connector outputs (used for pre-paying fees or managing dust outputs), they can also be collected and shared.
+If one party becomes uncooperative, the other performs a unilateral close:
+
+\begin{enumerate}
+    \item Publish the latest \txname{CommitExit(i)} and \txname{AssertExitState(i)} transactions.
+
+    \item Wait for a potential dispute
+   
+    \item Publish \txname{FinalizeExit(i)}, which is timelocked to allow dispute resolution
+\end{enumerate}
+
+In case Bob is not responding temporarily, Alice attempts a unilateral exit with the last valid state. Bob may wake up and realize that the latest \txname{CommitExit(i)} and \txname{AssertExitState(i)} transactions have been issued onchain. In this case, we add a happy resolution path for Bob to accelerate the \txname{FinalizeExit(i)} transaction before the dispute timeout by allowing \txname{FinalizeExit(i)} transaction to be issued immediately providing both $P_a$ and $P_b$ preimages, such that $H(P_a)=H_a$ and $H(P_b)=H_b$.
+
+\subsection{Watchtowers}
+
+We now examine variants of the OTS-PC scheme that influence the degree of privacy achievable by peers when employing watchtowers. Depending on the level of privacy desired, watchtowers may need their own punishment transactions or share them with one of the parties. We will first assume that these are required, but later we will discuss in which cases we can share them.
+
+To use neutral notation, we use the prefix \txname{WTX} to identify transactions given to the watchtower $W_X$ that serves $X$. The punishment transactions used by $W_X$ to punish $Y$ are labeled \txname{WTX-CommitPunishY(i)} and \txname{WTX-PunishY(i)}.
+
+Each party can decide what information is leaked to his watchtower, so we define different per-party privacy levels.
+
+\subsubsection{Level 1: Balance Privacy}
+
+Watchtowers receive periodic punishment transactions together with the transaction ID of the \txname{Setup} transaction. $X$’s watchtower receives \txname{WTX-CommitPunishY} and \txname{WTX-PunishY}. The watchtowers monitor the spending of the dispute output of the \txname{Setup} transaction. This scheme is depicted in Figure~\ref{fig:OTS-PC}.
+
+Watchtowers learn which channels are updated, at what rate, and the total amount involved in the channel. However, watchtowers cannot learn channel balances at each state update, because the \txname{WTX-CommitPunishY(i)} and \txname{WTX-PunishY(i)} transactions do not carry the state balances and only handle misbehavior. Therefore, watchtowers cannot learn payment amounts.
+
+Note that a party's watchtower cannot misbehave and make that party lose a dispute because the watchtower does not have the OTS private key to sign a state sequence number. 
+
+\subsubsection{Level 2: Channel ID  Privacy}
+
+We now show how we can increase channel privacy. Watchtowers will not be able to learn anything about a channel until a dispute is opened onchain. In case of a dispute, watchtowers learn only the total amount locked in the channel, but not the payment amounts. Figure ~\ref{fig:OTS-PC-L2} shows the changes required.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-L2.jpg}
+\caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC with Privacy Level 2}
+\label{fig:OTS-PC-L2}
+\end{figure}
+
+The dispute transactions (\txname{WTX-CommitPunishY}/\txname{WTX-PunishY})  are detached from the \txname{Setup} transaction. Instead, they are attached to a fixed \txname{WTDisputes} transaction. This transaction is only issued onchain when a watchtower intervenes and it needs to have a transaction ID that watchtowers cannot predict. It can have a \txname{OP\_RETURN} output pushing a private random number $x$ only known to Alice and Bob, or use unique randomly tweaked output addresses.
+
+Watchtowers periodically receive an encrypted packet $W_q(j)$ for each channel $q$, where $q$ is the transaction ID of the transaction \txname{WTDisputes}. Upon receiving $W_q(j)$, the watchtower discards the data $W_q(j-1)$ previously received and stores $W_q(j)$ in its place. The packet $W_q(j)$ is encrypted with a new IV each time, so the watchtower cannot see if two packets are encryptions of the same punishment transactions or not. 
+
+To further improve privacy, we make the following changes:
+
+\begin{enumerate}
+   
+\item  The client does not send every $W_q(j)$ to the watchtower, but sends a subset of packets $W_q(j)$ ($i \in J_q$),  at fixed intervals (e.g., one every second). If the channel does not change state, then the same state is sent encrypted with a different IV.  
+
+\item The two parties add a random offset to the sequence numbers when creating a new state to be informed to watchtowers, and also for the state update immediately following an informed state. The purpose of this second random offset is to prevent the leakage of information about the real channel update rate in the event of unilateral exit, as the sequence number is revealed by the transaction \txname{AssertExitState(i)}. 
+
+\end{enumerate}
+
+More formally, we define two sequences. The \textit{Internal Sequence Number (or ISN)} $j$ is monotonically incremented by 1 at each new state. The \textit{External Sequence Number (or ESN)} $S(j)$ is the value that will be one-time signed for ISN $j$. The ESN numbers $S(j)$ are chosen so that $S(j) = S(j-1) + d(j)$ for ($j>0$) and $S(0) = d(0)$. For $j \notin J_q$ and $(j+1) \notin J_q$, $d(i)= 1$. For $j \in J_q$ or $(j+1) \in J_q$ , $d(i)$ are chosen uniformly at random within an interval, so that the ESN update rate observed by the watchtower matches the maximum update rate expected for any payment channel. The ESN update rate should be standardized across all implementations to prevent watchtowers from inferring common ownership of multiple channels based on correlated update frequencies.
+
+The watchtowers will never learn the ISN of a state, neither they can correlate events from channel updates from different clients. The channel update rate is hidden even in the case of unilateral exit. 
+
+For the watchtower of a party $X$, the packet $W_q(j)$ is an encryption of the payload $T_q(j)$ that comprises the punishment transactions \txname{WTDisputes}, WTX-\txname{CommitPunishY(i)} and \txname{WTX-PunishY(i)}. Each \txname{CommitExit(i)} transaction created by Alice and Bob forces the \txname{AssertExitState(i)} transaction to reveal a pre-image $P_e$ of a committed hash $H_e$. This pre-image $P_e$ is used as a key to encrypt the $W_q(j)$ package given to watchtowers ($W_q(j) = E_{P_e}(T_q(j))$.  The watchtower client (Alice or Bob) is responsible for the correct encryption of $T_q(j)$. The client is incentivized to perform the encryption correctly. If he does not provide the correct encrypted packet, the watchtower will not be able to defend the client in the event of a dispute. 
+
+When a watchtower observes that a \txname{CommitExit(j)} transaction is being issued, it recovers the key $P_e$, and uses it to decrypt the last encrypted $W_q(j)$ payload it has received to obtain $T_q(j)$. Now the watchtower can extract the punishment transactions from $T_q(j)$ and issue the \txname{WTDisputes} transaction onchain, followed by the \txname{WTX-CommitPunishY} and \txname{WTX-PunishY} transactions. 
+
+Note that if the watchtower stored the previous packets, it could decrypt all of them when a unilateral exit occurs. However, if the channel parties have obfuscated the update rate (by sending messages to watchtowers at regular intervals and by skipping sequence numbers between channel updates), then the watchtowers cannot learn anything related to the channel. 
+
+\subsubsection{Level 3: Channel, Amount and Update Rate Privacy after Disputes}
+
+To achieve greater privacy even after disputes, we use a mechanism similar to Outpost~\cite{outpost} but adapted to our scheme. We start with the design for level 2 privacy, but add a new fixed transaction \txname{StartExit} between the \txname{Setup} and \txname{CommitExit(j)} transactions. The transaction \txname{StartExit} needs to have an ID watchtowers cannot predict, so either it holds an \txname{OP\_RETURN} with a random value $x$, or Alice and Bob covenant address that connects to the \txname{CommitExit(i)} transaction is randomly changed (e.g. via public key tweaking) to be unique. The channel identifier $q$ will correspond to the transaction ID of \txname{StartExit}.
+Figure ~\ref{fig:OTS-PC-L3} presents the DAG for level 3 watchtower privacy.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-L3.jpg}
+\caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC with Privacy Level 3}
+\label{fig:OTS-PC-L3}
+\end{figure}
+
+Without loss of generality, let us assume that only Alice is using a watchtower. The packet $W^A_q(i+1)$ for the watchtower WTA allows revocation of states $j$ $(j < i+1)$ and is stored in a transaction output containing a  \txname{OP\_RETURN}, in the \txname{CommitExit(i)} transaction associated with channel $q$. The \txname{OP\_RETURN} will also contain the index $i$ in plaintext form. $T^A_q(i+1)$ will contain only the \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions required.
+
+Instead of both parties using a single decryption key $P_e$, Bob creates a chain of decryption keys $K^A(i-1)=H(K^A(i))$. Note that Bob creates the key $K^A$ to encrypt Alice’s watchtower data. For the first key $K^A(M)$, we use a sufficiently high $M$ (e.g. $M=2^32$).  Our payment channel will support $M$ state updates before requiring closing. When creating the state update $i$, Alice will receive from Bob the packet $W^A_q(i+1)$ encrypted with the key $K^A(i+1)$ ($W^A_q(i+1) =  E_{K^A(i+1)}( T^A_q(i+1))$. Alice will store the packet in the transaction output pushing its value after the \txname{OP\_RETURN}. Alice cannot verify the correctness of $W^A_q(i+1)$ at this point, but she continues with the protocol.
+
+When the next channel state with sequence number $(i+1)$ is created, Bob will reveal to Alice the key $K^A(i+1)$. Alice will verify that $W^A_q(i+1)$ (embedded in the previous state update transactions) was correctly encrypted. If not, then Alice aborts the state update and unilaterally exits the channel. Although we can force the revelation of $K^A(i+1)$ to occur before Bob can use the new channel state, it is not important, since if $W^A_q(i+1)$ is incorrect, Alice (who is currently online) can immediately start a unilateral exit without the help of a watchtower. 
+If $W^A_q(i+1)$ is correct, then Alice sends her watchtower the tuple ($q$, $K^A(i+1)$, $i+1$). The watchtower discards any previous entry related to $q$, and stores this new tuple. 
+
+When a dispute occurs onchain, the \txname{StartExit} transaction will be posted onchain (with ID $q$) and so watchtowers can scan their directory looking for an entry related to the channel ID $q$ and retrieve the last tuple ($i+1$, $K^A(i+1)$). At that point, the watchtower waits until the \txname{CommitExit} transaction is published to recover the state update index $j$. This information is enough for the watchtower to compute $K^A(j+1)$ from $K^A(i+1)$ by chained hashing. Afterward, the watchtower can decrypt $W^A_q(i+1)$ and obtain \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions.
+
+We can use the ShaChain trick~\cite{lightning_bolts_03_transactions} to recover $K^A(j+1)$ in $O(log(M))$ hash computations instead of $O(M)$, but store $O(log(N))$ hashes per channel instead of $O(1)$.
+
+To make our scheme more efficient, Alice’s \txname{OP\_RETURN} output will store only the encrypted Musig2-aggregated Schnorr signatures of the \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions (totaling 130 bytes). 
+
+Note that in the Lightning Network protocol the watchtower learns the final balance split at the time of channel closure, whereas in the OTS-PC scheme it learns it only in case the unilateral exit is uncontested, because the \txname{FinalizeExit(i)} transaction is only issued if there is no challenge.
+
+\subsubsection{Sharing Penalization Transactions}
+
+In the OTS-PC scheme with Level 1 privacy, watchtowers do not need their own dispute output of the \txname{CommitExit(i)} transaction (in Figure~\ref{fig:OTS-PC}), because each \txname{CommitExit(i)} transaction accepts only one punishment transaction. Accordingly, Alice's watchtower can use the \txname{CommitPunishBob(i)} transaction.
+However, using a separate dispute output allows watchtowers to receive a special reward if they issue valid punishment transactions.
+
+In case of level 2 and level 3 privacy, watchtower dispute outputs do not change with state updates. In these modes,  watchtowers need their own punishment transactions. We justify this by showing how a watchtower could betray a client. Let us assume that Bob tries to unilaterally exit with and old sequence number $j$. Now Alice's watchtower, colluding with Bob, issues a \txname{CommitPunishBob(j)} transaction before Alice can react, but instead of posting the correct one for $j' > j$, it posts one for a sequence number $j' \leq j$. Then, Alice cannot issue the associated \txname{PunishBob(j')} transaction, and the old punishment transaction blocks Alice from punishing Bob.
+
+
+
+\begin{itemize}
+
+    \item CommitExit(i): $P_a$/$P_b$: 21 wu. P2WPKH input with aggregate signature: 272 wu. P2WPKH output: 124 wu.
+    
+    \item AssertExitState(i): Signed sequence number: 800 wu. P2WPKH input with aggregate
+    signature: 272 wu. P2WPKH output: 124 wu.
+    
+    \item FinalizeExit(i): 2 inputs/outputs: 792 wu
+    \item Total: 2405 wu
+\end{itemize}
+\subsection{HTLCs}
+
+We now show how we extend our OTS-PC construction to support routed payments using Hash Time-Locked Contracts (HTLC). HTLCs allow payment channels to be interconnected and to form the Lightning Network. When a transaction output is constrained by an HTLC, the funds can only be spend immediately by one party showing a pre-image of a hash, or by another party only after a timelock. To keep the explanation concise, we present transactions having a single HTLC, though the scheme can support any number of them. 
+
+To create an HTLC-based payment, both parties move to a new state where the locked payment amount is deducted from the sender’s balance but not yet credited to the receiver. Instead, the amount is locked in a new output of \txname{FinalizeExit(i)} that has two specific spending conditions. In case of a payment from Alice to Bob, the HTLC can be spent by Alice after an absolute timelock expires, or by Bob if he has the corresponding pre-image. If it is in the reverse direction, Bob receives the funds after the timelock and Alice with the preimage.
+
+In case an old update state is published and there is a dispute, the funds covered by HTLCs are fully paid to the winner of the dispute. In case of unilateral undisputed exit, the HTLCs remain intact. Figure ~\ref{fig:OTS-PC-HTLC} shows an HTLC output.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.4\textwidth]{fig/PaymentChannels-HTLC.jpg}
+\caption{The transaction Direct Acyclic Graph (DAG) for OTS-PC HTLCs}
+\label{fig:OTS-PC-HTLC}
+\end{figure}
+
+Informing about active HTLCs to watchtowers is straightforward. Alice can provide her watchtower the list of active HTLCs with their timeout information, together with presigned transactions for spending the HTLCs after timeout, in encrypted form, similar to our level 2 or level 3 watchtower privacy schemes. 
+
+\section{Summary}
+
+In this work, we present a new type of payment channel based on One-Time Signatures (OTS) that enables efficient state revocations and support for lightweight and privacy-preserving watchtower implementations. The payment channel is compatible with the Lightning Network by supporting HTLCs. The channel uses a small set of transactions that are regenerated and signed at each channel state update. Watchtowers only need to store a constant amount of data per monitored channel (the latest punishment transactions), improving upon the standard Lightning Network approach. 
+
+
+\bibliographystyle{IEEEtran}  % or any other style you prefer
+\bibliography{references}     % 'references' is the name of your .bib file
+
+\appendix
+
+\input{formal}
+
+\end{document}
