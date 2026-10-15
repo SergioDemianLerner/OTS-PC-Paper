@@ -45,14 +45,15 @@ We omit the definitions of WTA and WTB disputes since they are similar to Alice 
 
 The balance $I_{BAL}$ represents the total balance deposited in the payment channel. Balances $A_{BAL}(i)$ and $B_{BAL}(i)$ represents the balances of Alice and Bob after state update $i$, not including the amounts that may be locked in HTLCs nor the amounts committed to be paid in transaction fees.
 
-We define $\epsilon$ as the amount in bitcoins that is the minimum necessary to make the largest transaction in our graph standard. The standard transaction rules dictate that a certain fee-rate must be paid by transaction inputs, even when child transactions are paying for parent fees using CPFP. The \txname{Setup} transaction moves $k\epsilon$ bitcoins to an output that has a worst-case depth of $k$ transactions. In an OTC-PC, the worst case is $k=3$.
+We define $\epsilon$ as the amount in bitcoins that is the minimum necessary to make the largest transaction in our graph standard. The standard transaction rules dictate that a certain fee-rate must be paid by transaction inputs, even when child transactions are paying for parent fees using CPFP. The \txname{Setup} transaction moves $k\epsilon$ bitcoins to each exit output, where $k$ is the worst-case depth of transactions below it. In an OTS-PC, the worst case is $k=3$.
 
-The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and SharedAddress. AliceAddress and BobAddress are the addresses where Alice and Bob will receive the funds after unilateral exit. The SharedAddress is used only to let Alice or Bob bump transaction fees using the Child-Pay-For-Parent (CPFP) method. The only transaction that needs this output is \txname{AssertExitState}. The remainder transactions can be accelerated by Alice or Bob using the package relay method. This requires creating a new transaction \txname{Forward} to transfer the newly received (but unconfirmed) bitcoins to a new owned address, paying higher-than-normal transaction fees. With package relay nodes/miners accept and relay packages of related transactions instead of each transaction in isolation. In our case, it makes miners include all (unconfirmed) parent transactions of \txname{Forward}.
+The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and SharedAddress. AliceAddress and BobAddress are the addresses where Alice and Bob will receive the funds after unilateral exit. The SharedAddress is used only to let Alice or Bob bump transaction fees using the Child-Pay-For-Parent (CPFP) method. The only transactions that need this output are \txname{AliceAssertExitState} and \txname{BobAssertExitState}. The remainder transactions can be accelerated by Alice or Bob using the package relay method. This requires creating a new transaction \txname{Forward} to transfer the newly received (but unconfirmed) bitcoins to a new owned address, paying higher-than-normal transaction fees. With package relay nodes/miners accept and relay packages of related transactions instead of each transaction in isolation. In our case, it makes miners include all (unconfirmed) parent transactions of \txname{Forward}.
 
+Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or \ioname{Bob\_Exit\_out} output. Both paths are defined symmetrically, so below we give Alice's path in full and only note Bob's where it differs. Although every transaction is signed by both owners, the signature on a path's first transaction is delivered in one direction only: Bob gives Alice his signature on \txname{AliceCommitExit($i$)} and never receives hers, and vice versa. Each owner can therefore publish its own path and neither can publish the other's.
 
 \txname{Setup} = \tuple{
     \tuple{ \ioname{Funds\_From\_Alice\_in}, \ioname{Funds\_From\_Bob\_in}},
-    \tuple{ \ioname{Initial\_Funds\_out}, \ioname{Unilateral\_Exit\_out}, 
+    \tuple{ \ioname{Initial\_Funds\_out}, \ioname{Alice\_Exit\_out}, \ioname{Bob\_Exit\_out},
     \ioname{Bob\_Disputes\_out}, \ioname{Alice\_Disputes\_out}, 
     \ioname{WTB\_Disputes\_out}, \ioname{WTA\_Disputes\_out} }
 }
@@ -63,20 +64,9 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 
 \ioname{Initial\_Funds\_out} = \tuple{ $I_{BAL}$ ,  \opc{CovAddress} }
 
+\ioname{Alice\_Exit\_out} = \tuple{ $3\epsilon$, \opc{CovAddress} } 
 
-%\input text{prevout, s}
-%\output tuple{list-of-scripts , internal-key-pubkey}
-% \texttt{DUP} \texttt{TOALTSTACK} 
-\ioname{Unilateral\_Exit\_out} = \tuple{ $3\epsilon$, 
- P2WSHAddress( \tuple{ 
-  \opc{Covenant-Check}, 
-  \opc{IF}  
-  \opc{CHASHV($H_b$)} 
-  \opc{ELSE}
-  \opc{CHASHV($H_a$)} 
-  \opc{ENDIF}
-  })
-}
+\ioname{Bob\_Exit\_out} = \tuple{ $3\epsilon$, \opc{CovAddress} } 
 
 \ioname{Bob\_Disputes\_out} = \tuple{ $2\epsilon$, \opc{CovAddress} } 
 
@@ -86,44 +76,26 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 
 \ioname{WTA\_Disputes\_out} = \tuple{ $2\epsilon$,  \opc{CovAddress} } 
  
-\txname{CommitExit($i$)} = \tuple{
-    \tuple{ \ioname{Unilateral\_Exit\_out}} ,
-    \tuple{ \ioname{CommitExit\_out}}
+\txname{AliceCommitExit($i$)} = \tuple{
+    \tuple{ \ioname{Alice\_Exit\_out}} ,
+    \tuple{ \ioname{AliceCommitExit\_out}}
 }
 
-\txname{CommitExit\_out} = \tuple{ $2\epsilon$, 
- TaprootAddress( 
- \tuple{
-     \tuple{ 
-     \textbf{[1]} 
-      \opc{Covenant-Check(1)}
-      \opc{IF}  
-      \opc{OT-CSIGV}( $K^B_{pub}$ ) \opc{CVALV($i$)}
-      \opc{ELSE}
+\ioname{AliceCommitExit\_out} = \tuple{ $2\epsilon$, 
+ P2WSHAddress( \tuple{ 
+      \opc{Covenant-Check}
       \opc{OT-CSIGV}( $K^A_{pub}$ ) \opc{CVALV($i$)}
-      \opc{ENDIF}
-      },
-     \tuple{ 
-       \textbf{[2]} 
-       \opc{Covenant-Check(2)}
-       \opc{CSEQV}( $T$ ) 
-       \opc{CHASHV($H_a$)} 
-      },
-      \tuple{ 
-       \textbf{[3]} 
-       \opc{Covenant-Check(3)}
-       \opc{CSEQV}( $T$ ) 
-       \opc{CHASHV($H_b$)} 
-      }
-  }
+      })
  }
 
-\txname{AssertExitState($i$)} = \tuple{
-    \tuple{ \ioname{CommitExit\_out}} ,
-    \tuple{ \ioname{Ready\_out},\ioname{CPFP\_out}}
+\txname{BobCommitExit($i$)} and \ioname{BobCommitExit\_out} are identical with \ioname{Bob\_Exit\_out} and $K^B_{pub}$ in place of \ioname{Alice\_Exit\_out} and $K^A_{pub}$.
+
+\txname{AliceAssertExitState($i$)} = \tuple{
+    \tuple{ \ioname{AliceCommitExit\_out}} ,
+    \tuple{ \ioname{AliceReady\_out},\ioname{AliceCPFP\_out}}
 }
 
-\ioname{Ready\_out} = \tuple{ $\epsilon$, {
+\ioname{AliceReady\_out} = \tuple{ $\epsilon$, {
  \texttt{TaprootAddress}(\tuple{ 
  \tuple{ 
  \textbf{[1]} 
@@ -139,39 +111,19 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
  }
 }
 
-\ioname{CPFP\_out}= \tuple{ $\epsilon$, SharedAddress }
+\ioname{AliceCPFP\_out}= \tuple{ $\epsilon$, SharedAddress }
 
-\txname{FinalizeExit($i$)} = \tuple{
+\txname{AliceFinalizeExit($i$)} = \tuple{
     % inputs
-    \tuple{ \ioname{Initial\_Funds\_out}, \ioname{Ready\_out}},
+    \tuple{ \ioname{Initial\_Funds\_out}, \ioname{AliceReady\_out}},
     %outputs
     \tuple{
         \tuple{ $A_{BAL}(i)$, AliceAddress }
         \tuple{ $B_{BAL}(i)$, BobAddress }
     }
 }
-%%%% Lo que estaria faltando es que especifique de alguna
-%%% forma que path de taproot se esta consumiendo o que en los COVENANT-CHECK indique el path
-%% esto ultimo es mas formal. Tambien debiera indicarlo en CSIGV
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\txname{ExpireBobExit($i$)} = \tuple{
-    % inputs
-    \tuple{ \ioname{CommitExit\_out}, \ioname{Initial\_Funds\_out} } ,
-    %outputs
-    \tuple{
-        \tuple{ $I_{BAL}$, AliceAddress }
-    }
-}
-
-\txname{ExpireAliceExit($i$)} = \tuple{
-    % inputs
-    \tuple{ \ioname{CommitExit\_out}, \ioname{Initial\_Funds\_out} } ,
-    %outputs
-    \tuple{
-        \tuple{ $I_{BAL}$, BobAddress }
-    }
-}
+\txname{BobAssertExitState($i$)}, \ioname{BobReady\_out}, \ioname{BobCPFP\_out} and \txname{BobFinalizeExit($i$)} mirror the above. Note that \txname{AliceFinalizeExit($i$)} and \txname{BobFinalizeExit($i$)} pay the same amounts to the same addresses, and both spend \ioname{Initial\_Funds\_out}: only one of them can ever confirm, and it does not matter which.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \txname{CommitPunishAlice($i$)} = \tuple{
@@ -228,5 +180,3 @@ The scheme uses 3 addresses defined during setup: AliceAddress, BobAddress and S
 }
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
