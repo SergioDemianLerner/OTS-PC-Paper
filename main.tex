@@ -416,7 +416,31 @@ Each party can decide what information is leaked to his watchtower, so we define
 
 \subsubsection{Level 1: Balance Privacy}
 
-Watchtowers receive periodic punishment transactions together with the transaction ID of the \txname{Setup} transaction. $X$’s watchtower receives \txname{WTX-CommitPunishY} and \txname{WTX-PunishY}. Since each owner exits through its own path, $X$'s watchtower only ever needs to monitor $Y$'s exit output, \ioname{Y\_Exit\_out}, and the \txname{YAssertExitState} transaction that reveals $Y$'s one-time signature. This scheme is depicted in Figure~\ref{fig:OTS-PC}.
+Watchtowers receive periodic punishment transactions together with the transaction ID of the \txname{Setup} transaction. $X$’s watchtower receives \txname{WTX-CommitPunishY} and \txname{WTX-PunishY}. Since each owner exits through its own path, $X$'s watchtower only ever needs to monitor $Y$'s exit output, \ioname{Y\_Exit\_out}, and the \txname{YAssertExitState} transaction that reveals $Y$'s one-time signature. The watchtower branch is shown in Figure~\ref{fig:OTS-PC-WT}; the owners' own exit and punishment branches are those of Figure~\ref{fig:OTS-PC}.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[setupb, minimum width=78mm, anchor=north west] (su) at (-0.3,0) {Setup};
+\node[lbl, anchor=south] at (1.6,-1.12) {WTB\_Disputes\_out};
+\node[lbl, anchor=south] at (5.9,-1.12) {WTA\_Disputes\_out};
+
+\node[wt, anchor=north] (cb) at (1.6,-1.25) {WTB-CommitPunishAlice($i$)};
+\node[wt, anchor=north] (ca) at (5.9,-1.25) {WTA-CommitPunishBob($i$)};
+\node[wt, anchor=north] (pb) at (1.6,-2.55) {WTB-PunishAlice($i$)};
+\node[wt, anchor=north] (pa) at (5.9,-2.55) {WTA-PunishBob($i$)};
+\node[fundo, anchor=north] (ifo) at (3.75,-3.75) {Initial\_Funds\_out};
+
+\draw[fl] (1.6,-0.62) -- (cb.north);  \draw[fl] (5.9,-0.62) -- (ca.north);
+\draw[fl] (cb) -- (pb);  \draw[fl] (ca) -- (pa);
+\draw[fl] (ifo.north) -- (pb.south);  \draw[fl] (ifo.north) -- (pa.south);
+
+\node[note, anchor=north west, text width=78mm] at (-0.3,-4.45)
+  {Bob's watchtower WTB punishes Alice, and Alice's watchtower WTA punishes Bob. Each branch spends a dispute output fixed at \txname{Setup}, so a single pair per state suffices and the watchtower retains only the latest one. Neither transaction carries a balance, so the watchtower learns no payment amounts.};
+\end{tikzpicture}
+\caption{The watchtower branch under level 1 privacy}
+\label{fig:OTS-PC-WT}
+\end{figure}
 
 Watchtowers learn which channels are updated, at what rate, and the total amount involved in the channel. However, watchtowers cannot learn channel balances at each state update, because the \txname{WTX-CommitPunishY(i)} and \txname{WTX-PunishY(i)} transactions do not carry the state balances and only handle misbehavior. Therefore, watchtowers cannot learn payment amounts.
 
@@ -448,7 +472,9 @@ We now show how we can increase channel privacy. Watchtowers will not be able to
 \label{fig:OTS-PC-L2}
 \end{figure}
 
-The dispute transactions (\txname{WTX-CommitPunishY}/\txname{WTX-PunishY})  are detached from the \txname{Setup} transaction. Instead, they are attached to a fixed \txname{WTDisputes} transaction. This transaction is only issued onchain when a watchtower intervenes and it needs to have a transaction ID that watchtowers cannot predict. It can have a \txname{OP\_RETURN} output pushing a private random number $x$ only known to Alice and Bob, or use unique randomly tweaked output addresses.
+Inserting \txname{WTDisputes} lengthens the watchtower dispute chain by one transaction, so the funding changes: instead of two separate $2\epsilon$ outputs, \txname{Setup} carries a single output of $5\epsilon$ feeding \txname{WTDisputes}, which emits $2\epsilon$ for each watchtower branch and pays $\epsilon$ in fees. The owners' own dispute outputs are unaffected.
+
+The dispute transactions (\txname{WTX-CommitPunishY}/\txname{WTX-PunishY}) are detached from the \txname{Setup} transaction. Instead, they are attached to a fixed \txname{WTDisputes} transaction. This transaction is only issued onchain when a watchtower intervenes and it needs to have a transaction ID that watchtowers cannot predict. It can have a \txname{OP\_RETURN} output pushing a private random number $x$ only known to Alice and Bob, or use unique randomly tweaked output addresses.
 
 Watchtowers periodically receive an encrypted packet $W_q(j)$ for each channel $q$, where $q$ is the transaction ID of the transaction \txname{WTDisputes}. Upon receiving $W_q(j)$, the watchtower discards the data $W_q(j-1)$ previously received and stores $W_q(j)$ in its place. The packet $W_q(j)$ is encrypted with a new IV each time, so the watchtower cannot see if two packets are encryptions of the same punishment transactions or not. 
 
@@ -474,7 +500,7 @@ Note that if the watchtower stored the previous packets, it could decrypt all of
 
 \subsubsection{Level 3: Channel, Amount and Update Rate Privacy after Disputes}
 
-To achieve greater privacy even after disputes, we use a mechanism similar to Outpost~\cite{outpost} but adapted to our scheme. We start with the design for level 2 privacy, but add a new fixed transaction \txname{StartExit} between the \txname{Setup} and \txname{CommitExit(j)} transactions. Since the two exit paths must remain independent, there is one such transaction per path, \txname{AliceStartExit} and \txname{BobStartExit}: a single shared one would have to fund both paths, and only one of them could spend it. This costs nothing in practice, because a watchtower serving $X$ only ever watches $Y$'s path and therefore only needs $Y$'s identifier; where the single-path design gave both watchtowers one shared channel identifier, each watchtower now holds exactly the one it needs. The transaction \txname{StartExit} needs to have an ID watchtowers cannot predict, so either it holds an \txname{OP\_RETURN} with a random value $x$, or Alice and Bob covenant address that connects to the \txname{CommitExit(i)} transaction is randomly changed (e.g. via public key tweaking) to be unique. The channel identifier $q$ held by $X$'s watchtower corresponds to the transaction ID of \txname{YStartExit}.
+To achieve greater privacy even after disputes, we use a mechanism similar to Outpost~\cite{outpost} but adapted to our scheme. We start with the design for level 2 privacy, but add a new fixed transaction \txname{StartExit} between the \txname{Setup} and \txname{CommitExit(j)} transactions. This lengthens each exit chain by one transaction, so \ioname{Alice\_Exit\_out} and \ioname{Bob\_Exit\_out} must carry $4\epsilon$ rather than $3\epsilon$. Since the two exit paths must remain independent, there is one such transaction per path, \txname{AliceStartExit} and \txname{BobStartExit}: a single shared one would have to fund both paths, and only one of them could spend it. This costs nothing in practice, because a watchtower serving $X$ only ever watches $Y$'s path and therefore only needs $Y$'s identifier; where the single-path design gave both watchtowers one shared channel identifier, each watchtower now holds exactly the one it needs. The transaction \txname{StartExit} needs to have an ID watchtowers cannot predict, so either it holds an \txname{OP\_RETURN} with a random value $x$, or Alice and Bob covenant address that connects to the \txname{CommitExit(i)} transaction is randomly changed (e.g. via public key tweaking) to be unique. The channel identifier $q$ held by $X$'s watchtower corresponds to the transaction ID of \txname{YStartExit}.
 
 The encrypted packets follow the same logic, and are placed crosswise. $X$'s watchtower only acts when $Y$ cheats, that is, when $Y$'s path appears onchain, so the packet $W^X_q(i+1)$ must ride in the \txname{OP\_RETURN} of \txname{YCommitExit($i$)}. Placing each packet on its owner's own path would make it unreachable: that path is published only when its owner exits, which is precisely the case in which that owner's watchtower has nothing to do.
 Figure ~\ref{fig:OTS-PC-L3} presents the DAG for level 3 watchtower privacy.
