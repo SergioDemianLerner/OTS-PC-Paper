@@ -14,6 +14,29 @@
 \usepackage{booktabs}
 \usepackage{cite}
 \usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,calc,decorations.pathreplacing}
+\tikzset{
+  tx/.style={draw, rounded corners=2pt, align=center, font=\tiny\ttfamily,
+             minimum height=5.5mm, inner xsep=2.5pt, inner ysep=1.5pt},
+  setupb/.style={tx, fill=green!18},
+  al/.style={tx, fill=violet!18},
+  bo/.style={tx, fill=magenta!13},
+  wt/.style={tx, fill=gray!16},
+  txout/.style={tx, rounded corners=0pt, dashed, draw=black!55,
+               fill=none},
+  dead/.style={tx, fill=gray!8, draw=gray!60, text=gray!60},
+  lbl/.style={font=\tiny, inner sep=1pt, align=center},
+  note/.style={font=\tiny, align=left},
+  fl/.style={-{Stealth[length=3.5pt]}, thin},
+  flx/.style={-{Stealth[length=3.5pt]}, thin, gray!55},
+  bus/.style={gray!75, thin},
+  ref/.style={-{Stealth[length=3.5pt]}, thin, dashed, gray!70}
+}
+% Semicircular hops marking a crossing with no connection, as in
+% digital circuit schematics. One per direction of travel.
+\newcommand{\hopr}{arc (180:0:0.1)}
+\newcommand{\hopl}{arc (0:180:0.1)}
+\newcommand{\hopd}{arc (90:-90:0.1)}
 \usepackage{float}
 \usepackage{tabularx}
 \usepackage{adjustbox}
@@ -90,15 +113,6 @@ The Lightning Network has proven that layer two constructions can extend Bitcoin
 
 The notion of payment channels in Bitcoin dates even back to the early versions of the protocol: In the original implementation, Satoshi Nakamoto allowed unconfirmed transactions to be replaced by new versions if all input sequence numbers (nSequence) were increased, allowing multiple interim state changes until a final transaction was broadcast~\cite{nakamoto2010_nsequence}.
 Payment channels evolved from the initial ideas, and the Poon-Dryja~\cite{poon2016bitcoin} design, now standardized in the BOLT specification~\cite{bolts}, powers the Lightning Network. Improvements continued with new protocols such as Eltoo~\cite{decker2018eltoo},   Outpost~\cite{outpost} or Sleepy~\cite{sleepy}, further reducing the requirements on watchtowers. The latest protocols achieve bidirectional payments, provide HTLCs, infinite-updates and lightweight watchtowers with acceptable privacy. However, Lightning Network channels do not provide the best combination of features: they require peers to store $O(log(N))$ hashes for $N$ channel updates, but watchtowers still need to store $O(N)$ data. In contrast, Outpost and our proposed protocol require only $O(1)$ storage for peers and watchtowers.
-% REVIEW NOTE (not rendered): this O(1) claim needs a decision before the next
-% revision. ExpireAliceExit(i) and ExpireBobExit(i) spend CommitExit_out, whose
-% outpoint changes with i, so a peer must retain one per state -- O(N) -- or a
-% counterparty who publishes a stale CommitExit(j) and then stalls freezes the
-% channel permanently: punishment needs an OTS signature that was never
-% revealed, and asserting the stale state oneself invites punishment. The claim
-% has deliberately been left unchanged here, because the available repair is a
-% protocol change (a two-stage expiry whose trigger spends a dedicated dust
-% output rather than Initial_Funds_out) that the author has not yet approved. Regarding channel functionality,  lightning channels do not provide full privacy of the payment channel updates in the presence of watchtowers. 
 
 From an engineering and practical security point of view, the state of the payment channels is unsatisfactory: the Poon-Dryja design is complex, as is its number of transactions, protocol states, and state transitions. Historically, numerous bugs, incompatibilities with BOLT standards, and security vulnerabilities have been discovered in lightning channel implementations (for example, CVE-2020-26895 in LND). A simpler payment channel design that provides all existing features is enormously valuable. 
 
@@ -129,62 +143,105 @@ If Alice uses an outdated state — say she signs $j$, with $j < i$ — a disput
 
 
 \subsection{Transaction DAG}
+\label{dag}
 
 Figure ~\ref{fig:OTS-PC} illustrates the directed acyclic graph (DAG) of transactions created by the protocol. Some of these transactions are recreated at each channel state update. Only the \txname{Setup} transaction is always published on-chain; other transactions are published only as needed.
 
 \begin{itemize}
     \item Violet boxes: Transactions published by Alice
     \item Pink boxes: Transactions published by Bob
-    \item Orange boxes: Transactions re-created with every state update
-    \item Gray box: A transaction issued by a watchtower
+    \item Boxes marked $(i)$: re-created with every state update
     \item Green box: The initial funding transaction that either owner can issue.
 \end{itemize}
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC.jpg}
-\caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[setupb, minimum width=133mm, anchor=north west] (setup) at (-1.5,0) {Setup};
+
+\node[al, anchor=north] (ace) at (1.1,-1.35) {AliceCommitExit($i$)};
+\node[bo, anchor=north] (bce) at (4.5,-1.35) {BobCommitExit($i$)};
+\node[bo, anchor=north] (cpa) at (8.0,-1.35) {CommitPunishAlice($i$)};
+\node[al, anchor=north] (cpb) at (11.2,-1.35) {CommitPunishBob($i$)};
+
+\node[al, anchor=north] (aas) at (1.1,-2.75) {AliceAssertExitState($i$)};
+\node[bo, anchor=north] (bas) at (4.5,-2.75) {BobAssertExitState($i$)};
+
+\node[al, anchor=north] (afe) at (1.1,-4.15) {AliceFinalizeExit($i$)};
+\node[bo, anchor=north] (bfe) at (4.5,-4.15) {BobFinalizeExit($i$)};
+\node[bo, anchor=north] (pa)  at (8.0,-4.15) {PunishAlice($i$)};
+\node[al, anchor=north] (pb)  at (11.2,-4.15) {PunishBob($i$)};
+
+\node[txout, anchor=north] (ifo) at (-0.9,-2.0) {Initial\_\\Funds\_out};
+
+\node[lbl, anchor=west] at (1.18,-0.95)  {Alice\_Exit\_out};
+\node[lbl, anchor=west] at (4.58,-0.95)  {Bob\_Exit\_out};
+\node[lbl, anchor=west] at (8.08,-0.95)  {Bob\_Disputes\_out};
+\node[lbl, anchor=west] at (11.28,-0.95) {Alice\_Disputes\_out};
+
+\draw[fl] (1.1,-0.62)  -- (ace.north);
+\draw[fl] (4.5,-0.62)  -- (bce.north);
+\draw[fl] (8.0,-0.62)  -- (cpa.north);
+\draw[fl] (11.2,-0.62) -- (cpb.north);
+\draw[fl] (-0.9,-0.62) -- (ifo.north);
+\draw[fl] (ace) -- (aas);  \draw[fl] (bce) -- (bas);
+\draw[fl] (aas) -- (afe);  \draw[fl] (bas) -- (bfe);
+\draw[fl] (cpa) -- (pa);   \draw[fl] (cpb) -- (pb);
+
+% Initial_Funds_out baja por el margen izquierdo y entra por arriba a las
+% cuatro transacciones que lo gastan, saltando las verticales que cruza.
+\coordinate (d1) at ($(afe.north west)+(0.40,0)$);
+\coordinate (d2) at ($(bfe.north west)+(0.40,0)$);
+\coordinate (d3) at ($(pa.north west)+(0.40,0)$);
+\coordinate (d4) at ($(pb.north west)+(0.40,0)$);
+\coordinate (b1) at (d1 |- 0,-3.70);
+\coordinate (b2) at (d2 |- 0,-3.70);
+\coordinate (b3) at (d3 |- 0,-3.70);
+\coordinate (b4) at (d4 |- 0,-3.70);
+\draw[bus] (ifo.south) -- (-0.9,-3.70) -- (b1) -- (1.0,-3.70) \hopr
+           -- (b2) -- (4.4,-3.70) \hopr -- (b3) -- (7.9,-3.70) \hopr -- (b4);
+\draw[fl] (b1) -- (d1);  \draw[fl] (b2) -- (d2);
+\draw[fl] (b3) -- (d3);  \draw[fl] (b4) -- (d4);
+\end{tikzpicture}
+\caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC. Each owner has an independent exit path. All four bottom transactions spend \ioname{Initial\_Funds\_out}, so exactly one of them ever confirms. Throughout this paper a transaction is a rounded filled box and an output is a dashed rectangle.}
 \label{fig:OTS-PC}
 \end{figure}
 
+Each owner has its own exit path. Alice exits by publishing \txname{AliceCommitExit($i$)}, committing to the sequence number $i$, and then \txname{AliceAssertExitState($i$)}, which carries her one-time signature over $i$. Bob's path is the mirror image, rooted at a different \txname{Setup} output and verified against his own one-time key.
 
-When Alice publishes \txname{CommitExit(j)}, she commits to the sequence number $j$. Also, to issue the transaction \txname{CommitExit(j)} Alice must also reveal a secret preimage $P_a$, which enables Bob to timeout Alice if she does not continue with the unilateral-exit subprotocol. Alice or Bob could then OTS-sign the value $j$ in \txname{AssertExitState(j)}. Normally, if Alice has decided to unilaterally exit, then she is incentivized to sign the \txname{AssertExitState(j)} transaction to continue with her plan. 
+The two paths are independent in both directions. Neither owner needs the other to make progress, so no owner can stall the other's exit, and the protocol needs no timeout mechanism to recover from a stalled counterparty. If Alice publishes \txname{AliceCommitExit($j$)} and then stops responding, Bob simply runs his own path to completion and the channel closes at the state he asserts.
 
-We must consider whether Bob could disrupt Alice’s plans by issuing the \txname{AssertExitState(j)} transaction himself and signing $j$ his one-time key, instead of Alice's. If Bob learns that $j \neq i$ ($i$ being the latest state sequence number), he should refrain from OT-signing and issuing \txname{AssertExitState(j)} — he will be punished by Alice. Instead, Bob must wait for Alice to OTS-sign $j$. If Alice does not sign $j$, Bob gets all funds in the channel by issuing a timeout transaction \txname{ExpireAliceExit(j)}. Bob can timeout Alice because he has learned $P_a$, and the preimage $P_a$ is required to issue the transaction \txname{ExpireAliceExit(j)}.  If $j = i$, Bob can sign and publish \txname{AssertExitState(i)} safely, which will not affect the integrity of the protocol. However, Alice is still much more incentivized to do so, since if she does not, she can be punished by timeout.
+Publishing a \txname{CommitExit} for a stale $j < i$ reveals no one-time signature and is therefore not punishable. It is also not profitable: the only way to make use of it is to publish the matching \txname{AssertExitState($j$)}, and doing so reveals a one-time signature over $j$, which lets the counterparty punish and take the whole channel. The only thing a stale \txname{CommitExit} costs is the $3\epsilon$ of the exiter's own exit output, which it consumes.
 
-Two observations about which transactions must be recreated at each update, since the reason is not apparent from the figure.
-
-First, \txname{CommitExit($i$)} is state-specific solely because of the \opc{CVALV($i$)} in its first taproot leaf: the other two leaves depend only on $H_a$, $H_b$ and $T$, all fixed during setup. That check is what binds the one-time-signed sequence number to the balance distribution that follows it. Without it, a party could OTS-sign the \emph{current} sequence number in \txname{AssertExitState}, escaping punishment, and then publish a \txname{FinalizeExit($j$)} for a stale $j$, since nothing would tie the signed value to the distribution executed. The check cannot be placed elsewhere: the one-time signature is revealed in the witness of \txname{AssertExitState}, so any script verifying it against a fixed value must reside in the output that \txname{AssertExitState} spends.
-
-Second, and as a consequence, \txname{AssertExitState($i$)}, \txname{ExpireAliceExit($i$)} and \txname{ExpireBobExit($i$)} are state-specific as well, since each of them spends an output of a transaction that changes with $i$. Their structure does not vary, but their inputs do.
+The independence of the two paths rests on an asymmetry in the signature exchange. Although both owners sign every transaction, the signature on a path's first transaction travels in one direction only: Bob sends Alice his signature on \txname{AliceCommitExit($i$)} and never receives hers, while Alice sends Bob her signature on \txname{BobCommitExit($i$)} and never receives his. If signatures on both paths were exchanged in full, an owner could publish the counterparty's \txname{CommitExit} for a stale state, consuming the counterparty's exit output and leaving them without a usable path.
 
 In appendix \ref{formalization} we describe each transaction of the DAG.
 
 \subsection{Setup}
 
 \begin{itemize}
-    \item Each owner chooses a hidden preimage ($P_a$ by Alice and $P_b$ by Bob) and sends the other the corresponding hash $H_a$ and $H_b$ (such that $H_a = H(P_a)$ and $H_b = H(P_b)$). These are the hashes and secrets used to enable timeouts for Alice and Bob.
- 
+    \item Each owner chooses a hidden preimage ($P_a$ by Alice and $P_b$ by Bob) and sends the other the corresponding hash $H_a$ and $H_b$ (such that $H_a = H(P_a)$ and $H_b = H(P_b)$). These preimages are used only to let the owners agree to skip the dispute window when closing cooperatively, as described in section \ref{closing}.
+
     \item Each owner generates an OTS key pair: ($K^A_{priv},K^A_{pub}$) for Alice and ($K^B_{priv},K^B_{pub}$) for Bob. These keys are used to sign a sequence value $i$ in the case of unilateral exit. 
     
     \item The public keys $K^A_{pub}$  and $K^B_{pub}$ are exchanged.
  
-    \item Both parties construct the \txname{Setup} transaction (a.k.a. 'Funding transaction') by providing the UTXOs containing the initial funds, but they do \emph{not} sign its inputs yet. Because SegWit transaction identifiers do not commit to witness data, the \txname{Setup} transaction identifier is already determined at this point, and the exit path can be built against it.
+    \item Both parties construct the \txname{Setup} transaction (a.k.a. 'Funding transaction') by providing the UTXOs containing the initial funds, but they do \emph{not} sign its inputs yet. Because SegWit transaction identifiers do not commit to witness data, the \txname{Setup} transaction identifier is already determined at this point, and both exit paths can be built against it.
 
-    \item Both parties create the initial state-committing transactions:
+    \item Both parties create the initial state-committing transactions of both exit paths:
     \begin{itemize}
-        \item \txname{FinalizeExit(0)}, 
-        \item \txname{AssertExitState(0)}, 
-        \item \txname{CommitExit(0)},
-        \item \txname{ExpireAliceExit(0)}, \txname{ExpireBobExit(0)}.
+        \item \txname{AliceCommitExit(0)}, \txname{AliceAssertExitState(0)}, \txname{AliceFinalizeExit(0)},
+        \item \txname{BobCommitExit(0)}, \txname{BobAssertExitState(0)}, \txname{BobFinalizeExit(0)}.
     \end{itemize}
     
-    These define an initial exit path where each owner can withdraw their initial deposit. At this point, no revocation messages exist, so challenges are not possible.
+    These define two independent exit paths through which each owner can withdraw their initial deposit. At this point, no revocation messages exist, so challenges are not possible.
 
-    \item Both parties sign the above transactions and exchange the signatures. Only once each party holds a fully signed exit path do they sign the \txname{Setup} inputs and issue it on the blockchain.
+    \item Both parties sign these transactions, and exchange the signatures \emph{asymmetrically}: Bob sends Alice his signatures on Alice's path, Alice sends Bob her signatures on Bob's path, and neither returns the signatures for the counterparty's path. Only once each owner holds a fully signed path of their own do they sign the \txname{Setup} inputs and issue it on the blockchain.
 \end{itemize}
 
 The ordering of the last two steps is essential. \ioname{Initial\_Funds\_out} is a \opc{CovAddress} and therefore requires both signatures to spend. If \txname{Setup} were published before the exit transactions were signed, a party who stopped responding at that moment would leave the channel balance permanently unspendable, with no unilateral exit available to either owner. This is the same hazard that the Lightning Network avoids by exchanging \texttt{funding\_created} and \texttt{funding\_signed} before the funding transaction is broadcast.
+
+The asymmetry of the signature exchange is equally essential, for the reason given in section \ref{dag}: an owner holding both signatures on the counterparty's \txname{CommitExit} could consume the counterparty's exit output with a stale state and leave them with no path out.
 
 The one-time public keys $K^A_{pub}$ and $K^B_{pub}$ are shown in figures as $KA$ and $KB$.
 The parties can decide the allowed range for encoding and signing $i$, but the range is bounded by Bitcoin Script rather than by the width of the chosen type. The comparison \opc{LESSTHAN} in \ioname{PunishAlice\_out} and \ioname{PunishBob\_out} operates on \texttt{CScriptNum}, which accepts at most four bytes and interprets them as a signed value, so the largest usable sequence number is $2^{31}-1$. Assuming 10 updates per second, this represents 2486 days of continuous payments, that is $2486/365 = 6.8$ years.
@@ -212,72 +269,120 @@ The \txname{PunishX(i)} set contains all the punish transactions:
     \item \txname{WTA-PunishBob(i)},
     \item \txname{WTB-PunishAlice(i)}.
 \end{itemize}
-These are the channel update protocol steps:
+With two independent exit paths, "party $X$ can use state $i$" means exactly one thing: $X$ holds the counterparty's signatures on $X$'s own path at $i$. A state update therefore reduces to three messages. Without loss of generality Alice is paying Bob, so Alice prefers the old state $i-1$ and Bob prefers the new state $i$.
 
 \begin{enumerate}
-    \item These transactions are built by each party, but kept unsigned:
-    \begin{enumerate}
-    \item \txname{ExpireAliceExit(i)}, \txname{ExpireBobExit(i)}
-    \item \txname{CommitExit(i)}, \txname{FinalizeExit(i)} and \txname{AssertExitState(i)},
-    \item \txname{CommitPunishX(i)} set
-    \item \txname{PunishX(i)} set
-    \end{enumerate}
-    
-    \item Watchtower-related transactions are only created if watchtowers are used.
-    
-    \item All newly built transactions, except for the commit set \txname{CommitPunishX(i)}, are signed by both parties, and the signatures are exchanged. If any of the signatures are incorrect, the state update is aborted, and the parties will attempt to close the channel, either cooperatively or unilaterally. The same abortion mechanism occurs if any party deviates from the expected protocol in the following steps.
-    
-    \item Bob signs \txname{CommitExit(i)} and sends it to Alice. Now Alice can exit with either the old or the new state without being punished, but Bob can only use the old state to exit. Since Bob received funds, he is motivated to proceed.
-    
-    \item Alice signs \txname{CommitPunishAlice(i)} / \txname{WTB-CommitPunishAlice(i)} and sends the signatures to Bob. Now Alice can only issue the new state without being penalized, while Bob can issue only the old state.
-    
-    \item Alice cosigns \txname{CommitExit(i)} and sends it to Bob. Now Bob could use either the old or the new state without being punished, but the new state benefits him more, so he is incentivized to continue.
-    
-    \item Bob signs \txname{CommitPunishBob(i)} / \txname{WTA-CommitPunishBob(i)} and sends the signatures to Alice. Now both Alice and Bob can issue the new state, but if they try to issue the old state they can be punished.
-    
-    \item Bob signs Alice’s punishment transactions: 
-    \begin{itemize}
-        \item \txname{WTB-CommitPunishAlice(i)}
-        \item \txname{WTB-PunishAlice(i)} 
-    \end{itemize}
-    These transactions are sent to his watchtower WTB (Alice does not need them). If no specific dispute path is created for Bob’s watchtower, then Bob can send the \txname{CommitPunishAlice(i)} and \txname{PunishAlice(i)} transactions to his watchtower instead.
-    
-    \item Alice signs and forwards the punishment transactions to her watchtower, as Bob did with his own. At this point, neither party can safely use the old state.
+    \item These transactions are built by both parties, but kept unsigned: \txname{AliceCommitExit(i)}, \txname{AliceAssertExitState(i)}, \txname{AliceFinalizeExit(i)}, their three counterparts on Bob's path, and the \txname{CommitPunishX(i)} and \txname{PunishX(i)} sets. Watchtower-related transactions are only created if watchtowers are used.
+
+    \item The \txname{PunishX(i)} set is signed by both parties and the signatures exchanged. These are inert until the matching \txname{CommitPunishX(i)} is published, so exchanging them early is safe.
+
+    \item \textbf{Bob $\rightarrow$ Alice}: Bob's signatures on Alice's path at $i$. Alice can now use $i-1$ or $i$; Bob can still only use $i-1$. Alice prefers $i-1$, which is the state both already hold, so Bob has given away an option Alice has no reason to take.
+
+    \item \textbf{Alice $\rightarrow$ Bob}: \txname{CommitPunishAlice(i)} (and \txname{WTB-CommitPunishAlice(i)}) \emph{together with} Alice's signatures on Bob's path at $i$. Alice gives up $i-1$ at the same instant Bob gains $i$. Bob prefers $i$. If instead Bob were to close at $i-1$, Alice would receive more than she agreed to, so she is not exposed by his delay.
+
+    \item \textbf{Bob $\rightarrow$ Alice}: \txname{CommitPunishBob(i)} (and \txname{WTA-CommitPunishBob(i)}). Both owners are now committed to $i$, and neither can use an earlier state without being punished.
 \end{enumerate}
+
+The two items of step 4 must not be split in the other order. Were Alice to send her signatures on Bob's path before committing herself, both owners could use the state each prefers at the same time: Alice could still close at $i-1$ and Bob could close at $i$, and whichever transaction confirmed first would decide whether the payment happened. Sending them in one message removes the window; sending \txname{CommitPunishAlice(i)} first is also safe, merely one message less efficient.
+
+The rule behind this ordering is not that the payer commits first. It is that \emph{the party whose claim on the channel decreases must commit to the new state before the counterparty is given the ability to use it}. For a simple payment that party is the payer. When an HTLC is offered or settles, it is still the payer. But when an HTLC fails back to its sender, the party whose claim decreases is the \emph{receiver}, who loses the opportunity to claim with the preimage, and the order of steps 3 to 5 must be swapped accordingly. An implementation that always makes the payer commit first would open exactly the race described above on every HTLC failure.
+
+Finally, each owner signs the counterparty's punishment transactions destined for their own watchtower and forwards them, as described in section \ref{watchtowers}.
 
 \subsection{Example}
 
-In figure ~\ref{fig:OTS-PC-EXAMPLE} we show an example of an onchain dispute where Alice tries to cheat by attempting to perform a unilateral exit bringing and old state j=50. Bob stops Alice from issuing the \txname{FinalizeExit(50)} transaction by issuing the \txname{CommitPunishAlice(100)} and \txname{PunishAlice(100)} transactions. 
-
+In figure ~\ref{fig:OTS-PC-EXAMPLE} we show an example of an onchain dispute where Alice tries to cheat by attempting a unilateral exit with an old state $j=50$, while the latest agreed state is $i=100$. Alice publishes \txname{AliceCommitExit(50)}, which by itself reveals nothing and cannot be punished, and then \txname{AliceAssertExitState(50)}, whose witness carries her one-time signature over $50$. That signature is what Bob needs. He publishes \txname{CommitPunishAlice(100)} and \txname{PunishAlice(100)}, the second of which spends \ioname{Initial\_Funds\_out} and pays him the whole channel. Neither punishment transaction is timelocked, so Bob has the entire dispute window to confirm both of them, while Alice's \txname{AliceFinalizeExit(50)} cannot be published until that window has elapsed. Once \ioname{Initial\_Funds\_out} is spent by the punishment, Alice's exit is dead.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-Example.jpg}
-\caption{The transactions involved in a dispute. Alice tries to unilaterally exit with state $j=50$, but Bob punished her using the punishment transactions created in state $i=100$}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[al, anchor=north] (ac) at (0,0)      {AliceCommitExit(50)};
+\node[al, anchor=north] (aa) at (0,-1.1)   {AliceAssertExitState(50)};
+\node[dead, anchor=north] (af) at (0,-2.6) {AliceFinalizeExit(50)};
+
+\node[bo, anchor=north] (cp) at (5.4,-1.1) {CommitPunishAlice(100)};
+\node[bo, anchor=north] (pa) at (5.4,-2.6) {PunishAlice(100)};
+
+\node[txout, anchor=north] (ifo) at (8.6,0) {Initial\_\\Funds\_out};
+
+\draw[fl] (ac) -- (aa);
+\draw[flx] (aa) -- node[note, right=1mm, pos=0.3, text=gray!70] {blocked: needs the\\dispute window} (af);
+\draw[fl] (cp) -- (pa);
+\draw[ref] (aa.east) -- node[note, above, midway] {reveals $OTS_A(50)$} (cp.west);
+
+% Initial_Funds_out baja por el margen derecho y entra por arriba a las dos
+% transacciones que lo gastan, saltando las verticales que cruza.
+\coordinate (dl) at ($(af.north west)+(0.40,0)$);
+\coordinate (dr) at ($(pa.north east)-(0.40,0)$);
+\coordinate (bl) at (dl |- 0,-2.35);
+\coordinate (br) at (dr |- 0,-2.35);
+\draw[bus] (ifo.south) -- (8.6,-2.35);
+\draw[bus] (8.6,-2.35) -- node[note, above] {spent here first} (br);
+\draw[fl]  (br) -- (dr);
+\draw[bus] (br) -- (5.5,-2.35) \hopl -- (0.1,-2.35) \hopl -- (bl);
+\draw[flx] (bl) -- (dl);
+\end{tikzpicture}
+\caption{The transactions involved in a dispute. Alice tries to unilaterally exit with state $j=50$, but Bob punishes her using the punishment transactions created in state $i=100$. Greyed transactions never confirm.}
 \label{fig:OTS-PC-EXAMPLE}
 \end{figure}
 
+\subsection{Liveness Guarantees During Unilateral Exits}
 
+Because each owner holds an exit path that the other cannot consume, stalling is not a threat and the protocol needs no timeout mechanism. If Alice publishes \txname{AliceCommitExit($j$)} and then refuses to continue, Bob does not need to force her forward or to time her out: he publishes his own \txname{BobCommitExit($i$)} and \txname{BobAssertExitState($i$)} and closes the channel at the state he asserts. Alice's abandoned path consumes only her own $3\epsilon$ exit output.
 
-\subsection{Liveness Guarantees During Unilateral Exists}
-
-To prevent a party from stalling the protocol during a mid-unilateral exit, the transaction graph includes a timeout mechanism. If Alice issues \txname{CommitExit(j)} for an old state $j$ but delays or refuses to issue the corresponding \txname{AssertExitState(j)} on time, Bob can punish her by publishing \txname{ExpireAliceExit(j)}, which awards him all funds in the channel as a penalty for Alice's behavior. 
-
-If Alice issues \txname{CommitExit(j)} for the last state $j$ and stalls, Bob can decide to perform a cooperative exit by publishing \txname{AssertExitState(j)} himself or issue the timeout transaction (the rational choice).
-The correct timelock is selected using preimages  ($P_a$ or $P_b$) which Alice/Bob reveal when they publish the \txname{CommitExit(j)} transaction. This ensures that if one party starts this process, only the other party can enforce the timeout.
+Nor does Bob gain anything by publishing \txname{BobAssertExitState($j$)} for a stale $j$ in order to resolve Alice's exit for her, as he would reveal a one-time signature over $j$ and be punished. Each owner asserts only the latest state, using only their own key.
 
 \subsection{Symmetric vs Asymmetric Exists}
 
-In the Lightning Network payment channel specification, if a party  (e.g. Alice) attempts a unilateral exit based on a state $j$, she gives Bob immediate access to his share of the funds according to the balances associated with the state $j$, but Alice does not get immediate access to her share. This is known as an asymmetric exit. The OTS-PCs design presented so far does not attempt such an asymmetry. Symmetrical exit is not only more fair, but is also simpler to implement. 
+In the Lightning Network payment channel specification, if a party  (e.g. Alice) attempts a unilateral exit based on a state $j$, she gives Bob immediate access to his share of the funds according to the balances associated with the state $j$, but Alice does not get immediate access to her share. This is known as an asymmetric exit. The OTS-PCs design presented here does not attempt such an asymmetry. Symmetrical exit is not only more fair, but is also simpler to implement. 
 
-First, we note that this is not a deficiency of the OTS-PCs mechanism by itself: the presented scheme could be modified to use asymmetric exits by adding two parallel,  mutually exclusive unilateral exit paths, one for each party (e.g., one starting with \txname{AliceCommitExit(i)} and \txname{BobCommitExit(i)} transactions). The exit path for the party $X$ would give the other party $Y$ immediate access to his portion of the funds in the payment channel. Figure ~\ref{fig:OTS-PC-ASYNC} depicts this design variation.
+It is worth being precise about what is symmetric here, because the construction of section \ref{dag} already gives each owner a separate exit path. \emph{Structure} and \emph{payout} are independent choices. Our two paths exist so that neither owner can stall the other, and both of them pay out identically: \txname{AliceFinalizeExit($i$)} and \txname{BobFinalizeExit($i$)} each pay $A_{BAL}(i)$ to Alice and $B_{BAL}(i)$ to Bob, and neither imposes any delay on the party that did not initiate the exit. The exit is therefore symmetric in payout regardless of which path is used.
+
+An asymmetric variant would keep the same two paths and change what they pay: the path used by party $X$ would give the other party $Y$ immediate access to his portion of the funds while delaying $X$'s own. Figure ~\ref{fig:OTS-PC-ASYNC} depicts this design variation. We do not adopt it, for the reasons that follow.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-ASYNC.jpg}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[setupb, minimum width=101mm, anchor=north west] (su) at (-0.5,0) {Setup};
+\node[lbl, anchor=west] at (1.28,-0.92) {Initial\_Funds\_out};
+\node[lbl, anchor=west] at (6.68,-0.92) {Alice\_Exit\_out};
+
+\node[txout, anchor=north] (ifo) at (1.2,-1.25) {Initial\_Funds\_out};
+\node[al, anchor=north]    (ace) at (6.6,-1.25) {AliceCommitExit($i$)};
+\node[al, anchor=north]    (aas) at (3.9,-2.70) {AliceAssertExitState($i$)};
+
+\node[txout, anchor=north] (bs)  at (1.0,-4.05) {$B_{BAL}(i)$ to Bob};
+\node[txout, anchor=north] (rem) at (5.4,-4.05) {AliceRemainder\_out($i$)};
+\node[al, anchor=north] (af)  at (3.5,-5.35) {AliceFinalizeExit($i$)};
+\node[bo, anchor=north] (pun) at (7.8,-5.35) {PunishAlice($i$,$j$)};
+\node[txout, anchor=north] (ao)  at (3.5,-6.68) {$A_{BAL}(i)$ to Alice};
+
+\node[lbl, anchor=north, text=gray!60] at (1.0,-4.75) {immediate};
+\node[lbl, anchor=west,  text=gray!60] at (3.6,-6.15) {after timelock};
+\node[lbl, anchor=north, text=red!65]  at (7.8,-6.02) {one per $(i,j)$ pair};
+
+\draw[fl] (1.2,-0.62) -- (ifo.north);
+\draw[fl] (6.6,-0.62) -- (ace.north);
+
+\draw[fl] (ifo.south) -- (1.2,-2.25) -- (2.75,-2.25) -- (2.75,-2.70);
+\draw[fl] (ace.south) -- (6.6,-2.25) -- (5.05,-2.25) -- (5.05,-2.70);
+
+\draw[fl] (2.75,-3.25) -- (2.75,-3.65) -- (1.0,-3.65) -- (1.0,-4.05);
+\draw[fl] (5.05,-3.25) -- (5.05,-3.65) -- (5.4,-3.65) -- (5.4,-4.05);
+
+\draw[fl] (5.0,-4.60) -- (5.0,-4.98) -- (3.5,-4.98) -- (3.5,-5.35);
+\draw[fl, red!55] (5.8,-4.60) -- (5.8,-4.98) -- (7.8,-4.98) -- (7.8,-5.35);
+
+\draw[fl] (af) -- (ao);
+
+\node[note, anchor=north west, text width=100mm] at (-0.5,-7.35)
+  {Alice's exit is shown; Bob's is the mirror image. To pay Bob immediately, \txname{AliceAssertExitState($i$)} must spend \ioname{Initial\_Funds\_out}, so the punishable remainder becomes an output of a per-state transaction instead of an output of \txname{Setup}. The punishment can no longer be pre-signed once per state.};
+\end{tikzpicture}
 \caption{The transaction Direct Acyclic Graph (DAG) for an OTC-PC with asymmetric exits}
 \label{fig:OTS-PC-ASYNC}
 \end{figure}
+
+Beyond the economics discussed below, this variation also costs the construction its $O(1)$ storage, and for a structural reason. To pay $Y$ immediately, \txname{XAssertExitState($i$)} must spend \ioname{Initial\_Funds\_out}, so the punishable remainder no longer sits at an outpoint fixed by \txname{Setup}: it becomes an output of \txname{XAssertExitState($i$)}, and which $i$ that is depends on the state the cheating owner chooses to publish. A punishment transaction signed at state $i$ cannot name an outpoint that the counterparty will only create later, so a separate punishment must be pre-signed for every pair of states, and the owners must retain $O(N)$ of them rather than only the latest. In the symmetric design the comparison \opc{LESSTHAN} inside \ioname{PunishX\_out} covers every stale $j$ with a single transaction precisely because \ioname{Initial\_Funds\_out} does not move until the dispute is settled.
 
 It seems beneficial that no party can impose a delay on the other party's access to her funds when exiting unilaterally. However, this apparent benefit does not make the scheme fairer: By just stopping communicating, one party forces the other to unilaterally exit, imposing the same delay on the other party. The fact that one party can impose a delay on the other party's ability to access her funds is inevitable, and exists in any protocol based on fraud-proofs. Therefore, the asymmetric exit does not reduce the financial cost in the worst case. Instead, under certain conditions, it creates a prisoner's dilemma in which neither party is incentivized to cooperate to close a channel. 
 
@@ -318,21 +423,24 @@ Let us assume Bob is the participant that unilaterally exits. Other unsatisfacto
 
 
 \subsection{Closing the Channel}
+\label{closing}
 
-If both parties agree to close the channel, they co-sign a payment transaction that spends directly from the Setup transaction,  distributing the funds accordingly. If funds remain in intermediate connector outputs (used for pre-paying fees or managing dust outputs), they can also be collected and shared.
-If one party becomes uncooperative, the other performs a unilateral close:
+If both parties agree to close the channel, they co-sign a payment transaction that spends directly from the \txname{Setup} transaction, distributing the funds accordingly. If funds remain in intermediate connector outputs (used for pre-paying fees or managing dust outputs), they can also be collected and shared.
+
+If one party becomes uncooperative, the other performs a unilateral close using their own exit path. Taking Alice as the exiting party:
 
 \begin{enumerate}
-    \item Publish the latest \txname{CommitExit(i)} and \txname{AssertExitState(i)} transactions.
-
-    \item Wait for a potential dispute
-   
-    \item Publish \txname{FinalizeExit(i)}, which is timelocked to allow dispute resolution
+    \item Publish \txname{AliceCommitExit($i$)} and \txname{AliceAssertExitState($i$)}.
+    \item Wait for a potential dispute.
+    \item Publish \txname{AliceFinalizeExit($i$)}, which is timelocked to allow dispute resolution.
 \end{enumerate}
 
-In case Bob is not responding temporarily, Alice attempts a unilateral exit with the last valid state. Bob may wake up and realize that the latest \txname{CommitExit(i)} and \txname{AssertExitState(i)} transactions have been issued onchain. In this case, we add a happy resolution path for Bob to accelerate the \txname{FinalizeExit(i)} transaction before the dispute timeout by allowing \txname{FinalizeExit(i)} transaction to be issued immediately providing both $P_a$ and $P_b$ preimages, such that $H(P_a)=H_a$ and $H(P_b)=H_b$.
+Bob does not need to participate at any point, and cannot interfere: he holds no signature that would let him publish or consume any transaction of Alice's path. Should he wish to close at the same time, he runs his own path in parallel; both paths pay the same amounts, and whichever \txname{FinalizeExit} spends \ioname{Initial\_Funds\_out} first settles the channel. The other path is left with its $\epsilon$-sized \ioname{Ready\_out} and \ioname{CPFP\_out} unspent, which is the only cost of the duplication.
+
+In case Bob is not responding temporarily, Alice attempts a unilateral exit with the last valid state. Bob may wake up and realize that \txname{AliceCommitExit($i$)} and \txname{AliceAssertExitState($i$)} have been issued onchain. In this case, we add a happy resolution path for Bob to accelerate the \txname{AliceFinalizeExit($i$)} transaction before the dispute timeout by allowing it to be issued immediately providing both $P_a$ and $P_b$ preimages, such that $H(P_a) = H_a$ and $H(P_b) = H_b$. This is the only use the preimages have in the construction.
 
 \subsection{Watchtowers}
+\label{watchtowers}
 
 We now examine variants of the OTS-PC scheme that influence the degree of privacy achievable by peers when employing watchtowers. Depending on the level of privacy desired, watchtowers may need their own punishment transactions or share them with one of the parties. We will first assume that these are required, but later we will discuss in which cases we can share them.
 
@@ -342,7 +450,41 @@ Each party can decide what information is leaked to his watchtower, so we define
 
 \subsubsection{Level 1: Balance Privacy}
 
-Watchtowers receive periodic punishment transactions together with the transaction ID of the \txname{Setup} transaction. $X$’s watchtower receives \txname{WTX-CommitPunishY} and \txname{WTX-PunishY}. The watchtowers monitor the spending of the dispute output of the \txname{Setup} transaction. This scheme is depicted in Figure~\ref{fig:OTS-PC}.
+Watchtowers receive periodic punishment transactions together with the transaction ID of the \txname{Setup} transaction. $X$’s watchtower receives \txname{WTX-CommitPunishY} and \txname{WTX-PunishY}. Since each owner exits through its own path, $X$'s watchtower only ever needs to monitor $Y$'s exit output, \ioname{Y\_Exit\_out}, and the \txname{YAssertExitState} transaction that reveals $Y$'s one-time signature. The watchtower branch is shown in Figure~\ref{fig:OTS-PC-WT}; the owners' own exit and punishment branches are those of Figure~\ref{fig:OTS-PC}.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[setupb, minimum width=92mm, anchor=north west] (su) at (-0.5,0) {Setup};
+\node[lbl, anchor=west] at (1.48,-0.92) {WTB\_Disputes\_out};
+\node[lbl, anchor=west] at (7.08,-0.92) {WTA\_Disputes\_out};
+
+\node[wt, anchor=north] (cb) at (1.4,-1.25) {WTB-CommitPunishAlice($i$)};
+\node[wt, anchor=north] (ca) at (7.0,-1.25) {WTA-CommitPunishBob($i$)};
+\node[txout, anchor=north] (ifo) at (4.2,-1.25) {Initial\_\\Funds\_out};
+\node[wt, anchor=north] (pb) at (1.4,-2.55) {WTB-PunishAlice($i$)};
+\node[wt, anchor=north] (pa) at (7.0,-2.55) {WTA-PunishBob($i$)};
+
+\draw[fl] (1.4,-0.62) -- (cb.north);
+\draw[fl] (7.0,-0.62) -- (ca.north);
+\draw[fl] (4.2,-0.62) -- (ifo.north);
+\draw[fl] (cb) -- (pb);  \draw[fl] (ca) -- (pa);
+
+% Initial_Funds_out tambien entra por arriba a las dos transacciones de castigo.
+\coordinate (dl) at ($(pb.north east)-(0.40,0)$);
+\coordinate (dr) at ($(pa.north west)+(0.40,0)$);
+\coordinate (bl) at (dl |- 0,-2.28);
+\coordinate (br) at (dr |- 0,-2.28);
+\draw[bus] (ifo.south) -- (4.2,-2.28);
+\draw[bus] (4.2,-2.28) -- (bl);  \draw[fl] (bl) -- (dl);
+\draw[bus] (4.2,-2.28) -- (br);  \draw[fl] (br) -- (dr);
+
+\node[note, anchor=north west, text width=92mm] at (-0.5,-3.45)
+  {Bob's watchtower WTB punishes Alice, and Alice's watchtower WTA punishes Bob. Each branch spends a dispute output fixed at \txname{Setup}, so a single pair per state suffices and the watchtower retains only the latest one. Neither transaction carries a balance, so the watchtower learns no payment amounts.};
+\end{tikzpicture}
+\caption{The watchtower branch under level 1 privacy}
+\label{fig:OTS-PC-WT}
+\end{figure}
 
 Watchtowers learn which channels are updated, at what rate, and the total amount involved in the channel. However, watchtowers cannot learn channel balances at each state update, because the \txname{WTX-CommitPunishY(i)} and \txname{WTX-PunishY(i)} transactions do not carry the state balances and only handle misbehavior. Therefore, watchtowers cannot learn payment amounts.
 
@@ -354,14 +496,33 @@ We now show how we can increase channel privacy. Watchtowers will not be able to
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-L2.jpg}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[setupb, minimum width=58mm, anchor=north west] (su) at (0,0) {Setup};
+\node[lbl, anchor=west] at (2.98,-0.92) {WT\_Disputes\_out};
+\node[setupb, anchor=north] (wd) at (2.9,-1.25) {WTDisputes \quad OP\_RETURN $\langle x\rangle$};
+
+\node[wt, anchor=north] (wca) at (1.1,-2.6) {WTB-CommitPunishAlice($i$)};
+\node[wt, anchor=north] (wcb) at (4.7,-2.6) {WTA-CommitPunishBob($i$)};
+\node[wt, anchor=north] (wpa) at (1.1,-3.8) {WTB-PunishAlice($i$)};
+\node[wt, anchor=north] (wpb) at (4.7,-3.8) {WTA-PunishBob($i$)};
+
+\draw[fl] (2.9,-0.62) -- (wd.north);
+\draw[fl] (2.1,-1.80) -- (2.1,-2.20) -- (1.1,-2.20) -- (1.1,-2.60);
+\draw[fl] (3.7,-1.80) -- (3.7,-2.20) -- (4.7,-2.20) -- (4.7,-2.60);
+\draw[fl] (wca) -- (wpa);  \draw[fl] (wcb) -- (wpb);
+
+\node[note, anchor=north west, text width=88mm] at (0,-4.6)
+  {Only the watchtower branch changes. The dispute transactions no longer hang off \txname{Setup} directly: they are attached to a fixed \txname{WTDisputes} transaction whose identifier watchtowers cannot predict, published only when a watchtower intervenes. The two exit paths and the owners' own punishment branches are exactly as in Figure \ref{fig:OTS-PC}.};
+\end{tikzpicture}
 \caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC with Privacy Level 2}
 \label{fig:OTS-PC-L2}
 \end{figure}
 
-The dispute transactions (\txname{WTX-CommitPunishY}/\txname{WTX-PunishY})  are detached from the \txname{Setup} transaction. Instead, they are attached to a fixed \txname{WTDisputes} transaction. This transaction is only issued onchain when a watchtower intervenes and it needs to have a transaction ID that watchtowers cannot predict. It can have a \txname{OP\_RETURN} output pushing a private random number $x$ only known to Alice and Bob, or use unique randomly tweaked output addresses.
+The dispute transactions (\txname{WTX-CommitPunishY}/\txname{WTX-PunishY}) are detached from the \txname{Setup} transaction. Instead, they are attached to a fixed \txname{WTDisputes} transaction. This transaction is only issued onchain when a watchtower intervenes and it needs to have a transaction ID that watchtowers cannot predict. It can have a \txname{OP\_RETURN} output pushing a private random number $x$ only known to Alice and Bob, or use unique randomly tweaked output addresses.
 
-Watchtowers periodically receive an encrypted packet $W_q(j)$ for each channel $q$, where $q$ is the transaction ID of the transaction \txname{WTDisputes}. Upon receiving $W_q(j)$, the watchtower discards the data $W_q(j-1)$ previously received and stores $W_q(j)$ in its place. The packet $W_q(j)$ is encrypted with a new IV each time, so the watchtower cannot see if two packets are encryptions of the same punishment transactions or not. 
+Inserting \txname{WTDisputes} lengthens the watchtower dispute chain by one transaction, so the funding changes: instead of two separate $2\epsilon$ outputs, \txname{Setup} carries a single output of $5\epsilon$ feeding \txname{WTDisputes}, which emits $2\epsilon$ for each watchtower branch and pays $\epsilon$ in fees. The owners' own dispute outputs are unaffected.
+
+Watchtowers periodically receive an encrypted packet $W_q(j)$ for each channel $q$, where $q$ is the transaction ID of the transaction \txname{WTDisputes}. The subscript $q$ identifies the channel and is not a key; the key is introduced below. Upon receiving $W_q(j)$, the watchtower discards the data $W_q(j-1)$ previously received and stores $W_q(j)$ in its place. The packet $W_q(j)$ is encrypted with a new IV each time, so the watchtower cannot see if two packets are encryptions of the same punishment transactions or not. 
 
 To further improve privacy, we make the following changes:
 
@@ -377,32 +538,94 @@ More formally, we define two sequences. The \textit{Internal Sequence Number (or
 
 The watchtowers will never learn the ISN of a state, neither they can correlate events from channel updates from different clients. The channel update rate is hidden even in the case of unilateral exit. 
 
-For the watchtower of a party $X$, the packet $W_q(j)$ is an encryption of the payload $T_q(j)$ that comprises the punishment transactions \txname{WTDisputes}, WTX-\txname{CommitPunishY(i)} and \txname{WTX-PunishY(i)}. Each \txname{CommitExit(i)} transaction created by Alice and Bob forces the \txname{AssertExitState(i)} transaction to reveal a pre-image $P_e$ of a committed hash $H_e$. This pre-image $P_e$ is used as a key to encrypt the $W_q(j)$ package given to watchtowers ($W_q(j) = E_{P_e}(T_q(j))$.  The watchtower client (Alice or Bob) is responsible for the correct encryption of $T_q(j)$. The client is incentivized to perform the encryption correctly. If he does not provide the correct encrypted packet, the watchtower will not be able to defend the client in the event of a dispute. 
+For the watchtower of a party $X$, the packet $W_q(j)$ is an encryption of the payload $T_q(j)$ that comprises the punishment transactions \txname{WTDisputes}, WTX-\txname{CommitPunishY(i)} and \txname{WTX-PunishY(i)}. Each \txname{CommitExit(i)} transaction forces the matching \txname{AssertExitState(i)} transaction to reveal a pre-image $P_e$ of a committed hash $H_e$. Both exit paths commit to the same $H_e$, so a watchtower can decrypt the packet whichever path its client's counterparty takes. This pre-image $P_e$ is used as the key that encrypts the package given to watchtowers, $W_q(j) = \mathrm{Enc}(P_e,\, T_q(j))$.  The watchtower client (Alice or Bob) is responsible for the correct encryption of $T_q(j)$. The client is incentivized to perform the encryption correctly. If he does not provide the correct encrypted packet, the watchtower will not be able to defend the client in the event of a dispute. 
 
-When a watchtower observes that a \txname{CommitExit(j)} transaction is being issued, it recovers the key $P_e$, and uses it to decrypt the last encrypted $W_q(j)$ payload it has received to obtain $T_q(j)$. Now the watchtower can extract the punishment transactions from $T_q(j)$ and issue the \txname{WTDisputes} transaction onchain, followed by the \txname{WTX-CommitPunishY} and \txname{WTX-PunishY} transactions. 
+When a watchtower observes that a \txname{CommitExit(j)} transaction is being issued, it recovers the key $P_e$, and uses it to decrypt the last packet it has received for that channel, recovering the corresponding payload $T_q$. Now the watchtower can extract the punishment transactions from $T_q(j)$ and issue the \txname{WTDisputes} transaction onchain, followed by the \txname{WTX-CommitPunishY} and \txname{WTX-PunishY} transactions. 
 
 Note that if the watchtower stored the previous packets, it could decrypt all of them when a unilateral exit occurs. However, if the channel parties have obfuscated the update rate (by sending messages to watchtowers at regular intervals and by skipping sequence numbers between channel updates), then the watchtowers cannot learn anything related to the channel. 
 
 \subsubsection{Level 3: Channel, Amount and Update Rate Privacy after Disputes}
 
-To achieve greater privacy even after disputes, we use a mechanism similar to Outpost~\cite{outpost} but adapted to our scheme. We start with the design for level 2 privacy, but add a new fixed transaction \txname{StartExit} between the \txname{Setup} and \txname{CommitExit(j)} transactions. The transaction \txname{StartExit} needs to have an ID watchtowers cannot predict, so either it holds an \txname{OP\_RETURN} with a random value $x$, or Alice and Bob covenant address that connects to the \txname{CommitExit(i)} transaction is randomly changed (e.g. via public key tweaking) to be unique. The channel identifier $q$ will correspond to the transaction ID of \txname{StartExit}.
+To achieve greater privacy even after disputes, we use a mechanism similar to Outpost~\cite{outpost} but adapted to our scheme. We start with the design for level 2 privacy, but add a new fixed transaction \txname{StartExit} between the \txname{Setup} and \txname{CommitExit(j)} transactions. This lengthens each exit chain by one transaction, so \ioname{Alice\_Exit\_out} and \ioname{Bob\_Exit\_out} must carry $4\epsilon$ rather than $3\epsilon$. Since the two exit paths must remain independent, there is one such transaction per path, \txname{AliceStartExit} and \txname{BobStartExit}: a single shared one would have to fund both paths, and only one of them could spend it. This costs nothing in practice, because a watchtower serving $X$ only ever watches $Y$'s path and therefore only needs $Y$'s identifier; where the single-path design gave both watchtowers one shared channel identifier, each watchtower now holds exactly the one it needs. The transaction \txname{StartExit} needs to have an ID watchtowers cannot predict, so either it holds an \txname{OP\_RETURN} with a random value $x$, or Alice and Bob covenant address that connects to the \txname{CommitExit(i)} transaction is randomly changed (e.g. via public key tweaking) to be unique. We therefore write $q_A$ for the transaction ID of \txname{AliceStartExit} and $q_B$ for that of \txname{BobStartExit}. These replace the single identifier $q$ of level 2, which was the identifier of \txname{WTDisputes}. The identifier held by a watchtower is always the one of the path it watches, which is the counterparty's: Alice's watchtower holds $q_B$, and Bob's watchtower holds $q_A$. Note that the two subscripts carry different letters for the same object: the packet $W^B_{q_A}$ is used by Bob's watchtower and is filed under Alice's path identifier.
+
+The encrypted packets follow the same logic, and are placed crosswise. $X$'s watchtower only acts when $Y$ cheats, that is, when $Y$'s path appears onchain, so the packet $W^X_{q_Y}(i+1)$ must ride in the \txname{OP\_RETURN} of \txname{YCommitExit($i$)}. Placing each packet on its owner's own path would make it unreachable: that path is published only when its owner exits, which is precisely the case in which that owner's watchtower has nothing to do.
 Figure ~\ref{fig:OTS-PC-L3} presents the DAG for level 3 watchtower privacy.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.6\textwidth]{fig/PaymentChannels-OTS-PC-L3.jpg}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[setupb, minimum width=104mm, anchor=north west] (su) at (0,0) {Setup};
+\node[lbl, anchor=west] at (2.68,-0.92) {Alice\_Exit\_out};
+\node[lbl, anchor=west] at (7.88,-0.92) {Bob\_Exit\_out};
+
+\node[al, anchor=north, align=center] (ase) at (2.6,-1.25) {AliceStartExit\\OP\_RETURN $\langle x_A\rangle$};
+\node[bo, anchor=north, align=center] (bse) at (7.8,-1.25) {BobStartExit\\OP\_RETURN $\langle x_B\rangle$};
+
+\node[al, anchor=north, align=center] (ac) at (2.6,-2.85) {AliceCommitExit($i$)\\OP\_RETURN $\langle W^B_{q_A}(i{+}1)\rangle$};
+\node[bo, anchor=north, align=center] (bc) at (7.8,-2.85) {BobCommitExit($i$)\\OP\_RETURN $\langle W^A_{q_B}(i{+}1)\rangle$};
+
+\node[al, anchor=north] (aa) at (2.6,-4.35) {AliceAssertExitState($i$)};
+\node[bo, anchor=north] (ba) at (7.8,-4.35) {BobAssertExitState($i$)};
+\node[al, anchor=north] (af) at (2.6,-5.45) {AliceFinalizeExit($i$)};
+\node[bo, anchor=north] (bf) at (7.8,-5.45) {BobFinalizeExit($i$)};
+
+\draw[fl] (2.6,-0.62) -- (ase.north);  \draw[fl] (7.8,-0.62) -- (bse.north);
+\draw[fl] (ase) -- (ac);  \draw[fl] (bse) -- (bc);
+\draw[fl] (ac) -- (aa);   \draw[fl] (bc) -- (ba);
+\draw[fl] (aa) -- (af);   \draw[fl] (ba) -- (bf);
+
+\node[note, anchor=north, text width=40mm, text=gray!65] at (5.2,-2.0)
+  {$q_A$, $q_B$ = txids of \txname{AliceStartExit} and \txname{BobStartExit}};
+\node[note, anchor=north west, text width=100mm] at (0,-6.25)
+  {One \txname{StartExit} per path: a shared one would have to fund both paths and only one could spend it. Each watchtower holds the identifier of the path it watches, which is the counterparty's: Alice's watchtower holds $q_B$ and Bob's holds $q_A$. The encrypted packets ride crosswise for the same reason: $W^A_{q_B}$, which Alice's watchtower needs, is carried by \emph{Bob's} \txname{CommitExit}, since that is the transaction published when Bob cheats.};
+\end{tikzpicture}
 \caption{The transaction Direct Acyclic Graph (DAG) for an OTS-PC with Privacy Level 3}
 \label{fig:OTS-PC-L3}
 \end{figure}
 
-Without loss of generality, let us assume that only Alice is using a watchtower. The packet $W^A_q(i+1)$ for the watchtower WTA allows revocation of states $j$ $(j < i+1)$ and is stored in a transaction output containing a  \txname{OP\_RETURN}, in the \txname{CommitExit(i)} transaction associated with channel $q$. The \txname{OP\_RETURN} will also contain the index $i$ in plaintext form. $T^A_q(i+1)$ will contain only the \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions required.
+Without loss of generality, let us assume that only Alice is using a watchtower. The packet $W^A_{q_B}(i+1)$ for the watchtower WTA allows revocation of states $j$ $(j < i+1)$ and is stored in a transaction output containing a  \txname{OP\_RETURN}, in the \txname{CommitExit(i)} transaction on the path identified by $q_B$. The \txname{OP\_RETURN} will also contain the index $i$ in plaintext form. $T^A_{q_B}(i+1)$ will contain only the \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions required.
 
-Instead of both parties using a single decryption key $P_e$, Bob creates a chain of decryption keys $K^A(i-1)=H(K^A(i))$. Note that Bob creates the key $K^A$ to encrypt Alice’s watchtower data. For the first key $K^A(M)$, we use a sufficiently high $M$ (e.g. $M=2^32$).  Our payment channel will support $M$ state updates before requiring closing. When creating the state update $i$, Alice will receive from Bob the packet $W^A_q(i+1)$ encrypted with the key $K^A(i+1)$ ($W^A_q(i+1) =  E_{K^A(i+1)}( T^A_q(i+1))$. Alice will store the packet in the transaction output pushing its value after the \txname{OP\_RETURN}. Alice cannot verify the correctness of $W^A_q(i+1)$ at this point, but she continues with the protocol.
+Instead of both parties using a single decryption key $P_e$, Bob creates a chain of decryption keys $K^A(i-1)=H(K^A(i))$. Note that Bob creates the key $K^A$ to encrypt Alice’s watchtower data. For the first key $K^A(M)$, we use a sufficiently high $M$. Our payment channel will support $M$ state updates before requiring closing, so $M$ is bounded by the same Script limit as the sequence numbers themselves: what is one-time signed and compared with \opc{LESSTHAN} is the external sequence number $S(j)$, which must satisfy $S(M) \leq 2^{31}-1$. Because $S(j) \geq j$, and strictly exceeds it whenever a random offset is applied, $M$ must be chosen correspondingly below $2^{31}-1$ rather than at it. When creating the state update $i$, Alice will receive from Bob the packet $W^A_{q_B}(i+1)$ encrypted with the key $K^A(i+1)$ ($W^A_{q_B}(i+1) =  E_{K^A(i+1)}( T^A_{q_B}(i+1))$. Alice will store the packet in the transaction output pushing its value after the \txname{OP\_RETURN}. Alice cannot verify the correctness of $W^A_{q_B}(i+1)$ at this point, but she continues with the protocol.
 
-When the next channel state with sequence number $(i+1)$ is created, Bob will reveal to Alice the key $K^A(i+1)$. Alice will verify that $W^A_q(i+1)$ (embedded in the previous state update transactions) was correctly encrypted. If not, then Alice aborts the state update and unilaterally exits the channel. Although we can force the revelation of $K^A(i+1)$ to occur before Bob can use the new channel state, it is not important, since if $W^A_q(i+1)$ is incorrect, Alice (who is currently online) can immediately start a unilateral exit without the help of a watchtower. 
-If $W^A_q(i+1)$ is correct, then Alice sends her watchtower the tuple ($q$, $K^A(i+1)$, $i+1$). The watchtower discards any previous entry related to $q$, and stores this new tuple. 
+When the next channel state with sequence number $(i+1)$ is created, Bob will reveal to Alice the key $K^A(i+1)$. Alice will verify that $W^A_{q_B}(i+1)$ (embedded in the previous state update transactions) was correctly encrypted. If not, then Alice aborts the state update and unilaterally exits the channel. Although we can force the revelation of $K^A(i+1)$ to occur before Bob can use the new channel state, it is not important, since if $W^A_{q_B}(i+1)$ is incorrect, Alice (who is currently online) can immediately start a unilateral exit without the help of a watchtower. 
+If $W^A_{q_B}(i+1)$ is correct, then Alice sends her watchtower the tuple ($q_B$, $K^A(i+1)$, $i+1$). The watchtower discards any previous entry related to $q_B$, and stores this new tuple. 
 
-When a dispute occurs onchain, the \txname{StartExit} transaction will be posted onchain (with ID $q$) and so watchtowers can scan their directory looking for an entry related to the channel ID $q$ and retrieve the last tuple ($i+1$, $K^A(i+1)$). At that point, the watchtower waits until the \txname{CommitExit} transaction is published to recover the state update index $j$. This information is enough for the watchtower to compute $K^A(j+1)$ from $K^A(i+1)$ by chained hashing. Afterward, the watchtower can decrypt $W^A_q(i+1)$ and obtain \txname{WTA-CommitPunishBob(i)} and \txname{WTA-PunishBob(i)} transactions.
+When a dispute occurs onchain, Bob's \txname{BobStartExit} transaction will be posted onchain (with ID $q_B$) and so watchtowers can scan their directory looking for an entry related to the identifier $q_B$ and retrieve the last tuple ($i+1$, $K^A(i+1)$). At that point, the watchtower waits until \txname{BobCommitExit} is published to recover the state update index $j$. This information is enough for the watchtower to compute $K^A(j+1)$ from $K^A(i+1)$ by chained hashing. Afterward, the watchtower can decrypt $W^A_{q_B}(j+1)$ --- the packet carried by the \txname{BobCommitExit($j$)} that was actually published, not the one for the latest state --- and obtain the \txname{WTA-CommitPunishBob($j$)} and \txname{WTA-PunishBob($j$)} transactions. Figure~\ref{fig:keychain} shows the three values involved and the hashing that links them.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=1cm, y=1cm,
+  key/.style={draw, rounded corners=2pt, font=\tiny, minimum height=5mm,
+              minimum width=9mm, inner sep=1pt, fill=gray!8},
+  have/.style={key, fill=green!22},
+  need/.style={key, fill=orange!30}]
+
+\foreach \n in {1,...,10}{ \node[key] (k\n) at ({(\n-1)*1.18},0) {$K^A(\n)$}; }
+\node[need] (k4) at ({3*1.18},0) {$K^A(4)$};
+\node[have] (k9) at ({8*1.18},0) {$K^A(9)$};
+
+\foreach \n in {1,...,9}{ \pgfmathtruncatemacro{\m}{\n+1} \draw[fl] (k\m) -- (k\n); }
+\node[lbl, anchor=south] at ({2.1*1.18},0.40) {$K^A(n-1)=H(K^A(n))$, one way only};
+
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}, gray!70]
+  ({3*1.18-0.45},-0.42) -- ({8*1.18+0.45},-0.42)
+  node[midway, below=4pt, font=\tiny, text=gray!75] {5 hashes};
+
+\node[lbl, anchor=south, align=center, text width=33mm] (dbn) at ({8*1.18},0.40)
+  {\textbf{in its database}\\ $(i{+}1,\,K^A(i{+}1))$ with $i{+}1=9$,\\ sent by Alice at the last update};
+\draw[fl, green!45!black] (dbn.south) -- (k9.north);
+
+\node[lbl, anchor=north, align=center, text width=40mm] (chn) at ({1.4*1.18},-1.75)
+  {\textbf{from the blockchain}\\ \txname{BobCommitExit($j$)} with $j=3$,\\ whose \txname{OP\_RETURN} carries $W^A_{q_B}(4)$};
+\draw[fl] (chn.north) -- (k4.south);
+
+\node[lbl, anchor=west, align=left, text width=44mm] (out) at ({8.0*1.18},-1.75)
+  {\textbf{must compute}\\ $K^A(4)=H^{5}(K^A(9))$,\\ then decrypt $W^A_{q_B}(4)$ with it};
+\draw[fl, orange!65!black] (k4.south east) to[out=-30, in=180] (out.west);
+\end{tikzpicture}
+\caption{The watchtower holds one key of the chain and hashes forward to reach the one it needs. Holding $K^A(9)$ yields every earlier key and no later one, so a watchtower can punish any stale state but learns nothing about states still to come.}
+\label{fig:keychain}
+\end{figure}
 
 We can use the ShaChain trick~\cite{lightning_bolts_03_transactions} to recover $K^A(j+1)$ in $O(log(M))$ hash computations instead of $O(M)$, but store $O(log(N))$ hashes per channel instead of $O(1)$.
 
@@ -430,6 +653,7 @@ In case of level 2 and level 3 privacy, watchtower dispute outputs do not change
     \item Total: 2405 wu
 \end{itemize}
 \subsection{HTLCs}
+\label{htlcs}
 
 We now show how we extend our OTS-PC construction to support routed payments using Hash Time-Locked Contracts (HTLC). HTLCs allow payment channels to be interconnected and to form the Lightning Network. When a transaction output is constrained by an HTLC, the funds can only be spend immediately by one party showing a pre-image of a hash, or by another party only after a timelock. To keep the explanation concise, we present transactions having a single HTLC, though the scheme can support any number of them. 
 
@@ -439,8 +663,35 @@ In case an old update state is published and there is a dispute, the funds cover
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.4\textwidth]{fig/PaymentChannels-HTLC.jpg}
-\caption{The transaction Direct Acyclic Graph (DAG) for OTS-PC HTLCs}
+\begin{tikzpicture}[x=1cm, y=1cm]
+\node[tx, anchor=north, align=center] (ft) at (0,0) {\textit{X}FinalizeExit($i$)};
+\node[lbl, anchor=north, align=center, text=gray!65] at (0,-0.75)
+  {inputs:\\ Initial\_Funds\_out\\ \textit{X}Ready\_out};
+
+\node[txout, anchor=west] (oa) at (2.6,-0.15) {$A_{BAL}(i)$ to Alice};
+\node[txout, anchor=west] (ob) at (2.6,-0.85) {$B_{BAL}(i)$ to Bob};
+\node[txout, anchor=west] (h1) at (2.6,-1.75) {AB HTLC};
+\node[txout, anchor=west] (h2) at (2.6,-2.85) {BA HTLC};
+
+\node[lbl, anchor=west] (h1a) at (5.0,-1.45) {(1) hash-lock preimage + Bob sig $\rightarrow$ Bob};
+\node[lbl, anchor=west] (h1b) at (5.0,-2.05) {(2) absolute timelock + Alice sig $\rightarrow$ Alice};
+\node[lbl, anchor=west] (h2a) at (5.0,-2.55) {(1) hash-lock preimage + Alice sig $\rightarrow$ Alice};
+\node[lbl, anchor=west] (h2b) at (5.0,-3.15) {(2) absolute timelock + Bob sig $\rightarrow$ Bob};
+
+% Aqui el tiempo corre de izquierda a derecha: las salidas dejan la caja por
+% el este y los destinos se alcanzan con polilineas ortogonales.
+\draw[bus] (ft.east) -- (1.8,-0.28);
+\draw[bus] (1.8,-0.15) -- (1.8,-2.85);
+\foreach \n/\y in {oa/-0.15, ob/-0.85, h1/-1.75, h2/-2.85}
+  { \draw[fl] (1.8,\y) -- (\n.west); }
+
+\draw[bus] (h1.east) -- (4.3,-1.75);  \draw[bus] (4.3,-1.45) -- (4.3,-2.05);
+\draw[fl] (4.3,-1.45) -- (h1a.west);  \draw[fl] (4.3,-2.05) -- (h1b.west);
+
+\draw[bus] (h2.east) -- (4.3,-2.85);  \draw[bus] (4.3,-2.55) -- (4.3,-3.15);
+\draw[fl] (4.3,-2.55) -- (h2a.west);  \draw[fl] (4.3,-3.15) -- (h2b.west);
+\end{tikzpicture}
+\caption{An HTLC output of \txname{FinalizeExit($i$)}. The structure is the same on either exit path, so \textit{X} stands for Alice or Bob.}
 \label{fig:OTS-PC-HTLC}
 \end{figure}
 
@@ -449,6 +700,43 @@ Informing about active HTLCs to watchtowers is straightforward. Alice can provid
 It is worth making explicit why the HTLC amounts must be carried by \txname{FinalizeExit($i$)}, and what that costs. Because an HTLC of a stale state must be seizable by the winner of a dispute, the HTLC outputs cannot become spendable before the dispute window has closed; and because the punishment transactions are pre-signed against \ioname{Initial\_Funds\_out}, whose outpoint is fixed at setup, the funds covering those HTLCs cannot leave that output earlier either. HTLC resolution and dispute resolution are therefore serialised.
 
 This is a consequence of the design choice that gives OTS-PC its $O(1)$ storage. In the Poon-Dryja construction the proof of fraud is a per-commitment revocation secret, which is self-validating and requires no further context: it can be placed first in every output script with no timelock at all, and the BOLT specification uses exactly that property to let an HTLC time out or be fulfilled while the penalty delay is still running. In OTS-PC the proof of fraud is a one-time signature together with evidence that a later state exists, and that evidence is a pre-signed transaction rather than a secret. One one-time key per channel buys constant storage; the price is the loss of a bearer proof of revocation, and with it the ability to decouple HTLC resolution from the dispute window.
+
+\subsection{Compatibility with the Lightning Network}
+\label{lncompat}
+
+OTS-PC channels interoperate with the Lightning Network through HTLCs: both constructions lock a payment to the same hash, and that shared lock is what makes a payment crossing the boundary atomic. Neither side needs to understand the other's channel format. What the two do not share is how quickly an HTLC can be resolved on chain, and that difference decides the shape of the integration.
+
+\subsubsection{The forwarding budget}
+
+A Lightning node that forwards a payment must learn the on-chain outcome of its outgoing HTLC before its incoming one expires, and the margin it has is the \texttt{cltv\_expiry\_delta} it advertises. In the Poon-Dryja construction that margin is small, because the HTLC output lives in the commitment transaction and is therefore publishable at once: the node needs one confirmation for the commitment transaction and one for the HTLC transaction. A widely deployed implementation budgets 39 blocks for the pair, assuming 18 blocks as the worst case for a single confirmation. Conventional per-hop deltas are of the same order, around 34 to 40 blocks.
+
+In an OTS-PC the same outcome is four confirmations away rather than two --- \txname{CommitExit}, \txname{AssertExitState}, \txname{FinalizeExit} and the spend of the HTLC output itself --- and the dispute window sits between the second and the third. The delta such a channel must advertise is therefore
+
+$$\Delta \;=\; T \;+\; 4c \;+\; g$$
+
+where $T$ is the dispute window, $c$ the assumed worst case for one confirmation and $g$ a small grace period. With $c=18$ and $g=3$, a channel advertising a conventional delta of 40 blocks cannot serve as a forwarding hop for \emph{any} choice of $T$: the four confirmations alone exceed the budget.
+
+\subsubsection{Sizing the dispute window}
+
+The dispute window is the only timelock left in the construction, and it has one requirement: it must accommodate the punishment, which is the two sequential transactions \txname{CommitPunishX} and \txname{PunishX}. That is the same two-confirmation budget the Lightning implementations assign to their own two-transaction path, so applying the same assumption gives $T \approx 40$ blocks and
+
+$$\Delta \;=\; 40 + 72 + 3 \;=\; 115 \text{ blocks.}$$
+
+Roughly three times the conventional per-hop delta, but well inside the per-hop maximum implementations accept and inside a typical total route budget. An OTS-PC channel can therefore act as a forwarding hop, at the cost of being a less attractive one for pathfinding. Choosing $T$ larger for additional dispute safety raises $\Delta$ one-for-one, and a window of a few hundred blocks takes the channel out of routable range altogether.
+
+\subsubsection{Gateways}
+
+The forwarding budget can be avoided entirely by not forwarding. A gateway node holds an OTS-PC channel on one side and a Lightning channel on the other, and bridges a payment by terminating one leg and originating the other, with both legs locked to the same payment hash.
+
+For a payment arriving from the Lightning Network, the gateway issues the invoice on behalf of the OTS-PC recipient, for a hash whose preimage only the recipient knows. It holds the incoming Lightning HTLC, offers the corresponding HTLC over the OTS-PC channel, and claims the Lightning leg with the preimage the recipient reveals by taking it. In the other direction the gateway accepts the OTS-PC HTLC, re-originates the payment over Lightning, and claims the OTS-PC HTLC with the preimage returned by the Lightning leg. In both directions the gateway can only collect by having paid, so it is never custodial.
+
+Because the gateway is an endpoint of the Lightning payment rather than a hop within it, the delta computed above does not apply to the route: only the gateway's own exposure is bounded by the dispute window, and it can price that risk. The cost is in addressing rather than in safety. An OTS-PC recipient is not independently reachable on the Lightning graph, and in the outbound direction the gateway learns the destination, which is the privacy of a trampoline hop rather than of an onion hop.
+
+A further reason favours this arrangement. A BOLT channel announcement must prove a P2WSH 2-of-2 funding output, whereas an OTS-PC funds into a Taproot covenant address, so OTS-PC channels cannot be announced in the Lightning gossip graph in any case. They are reached through route hints or blinded paths, which is precisely how a gateway advertises the recipients behind it.
+
+\subsubsection{Reducing the budget}
+
+The four confirmations are not reducible, but $T$ enters $\Delta$ only because the HTLC outputs are inside the punishable pot, as explained in section \ref{htlcs}. A construction that caps the value in flight and carves the corresponding amount out of the channel balance at setup would let the HTLC outputs settle on their own schedule while the balances remain subject to the dispute, bringing $\Delta$ close to the Lightning figure. Such a variant introduces a ceiling on in-flight HTLC value, which is not unusual --- Lightning channels already negotiate one --- and a griefing vector bounded by that ceiling. We leave its analysis to future work.
 
 \section{Summary}
 
