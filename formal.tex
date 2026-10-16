@@ -1,12 +1,10 @@
 \section{Formalization}
 \label{formalization}
 
-We formalize our basic construction in Figure \ref{fig:OTS-PC}. We make use of an auxiliary functions create P2WSH and Taproot addresses out of scripts:
+We formalize our basic construction in Figure \ref{fig:OTS-PC}. We make use of an auxiliary function to create Taproot addresses out of scripts:
 
 \begin{enumerate}
     \item \texttt{TaprootAddress}(list-of-scripts): a P2TR address with a tree containing the given scripts with unspendable NUMS internal key.
-    
-    \item \texttt{P2WSHAddress}(script): a P2WSH address for a specific script.
     
 \end{enumerate}
 
@@ -25,6 +23,8 @@ We omit transaction versions and nSequence, and lockTime values for simplicity. 
 
 \item \opc{Covenant-Check($i$)} to indicate the signing by all parties involved (Alice and Bob in our case). This can be accomplished by checking 2 signatures using a \opc{CHECKSIGVERIFY} followed by a \opc{CHECKSIG}, or by checking one signature aggregated for both parties using MuSig2 with a single \opc{CHECKSIG}. If present, an index ($i$) indicates which taproot path is being signed. It is written last in every script below, for the reason given at the end of this list.
 
+\item The MuSig2 option requires Taproot. A MuSig2 aggregate is a Schnorr key, and \opc{CHECKSIG} verifies Schnorr signatures only in Taproot; segwit v0 verifies ECDSA over a compressed key and rejects a 32-byte one outright. So an output whose script contains a MuSig2 \opc{Covenant-Check} cannot be P2WSH, and every covenant output below is Taproot for that reason. Taking the P2WSH option and the MuSig2 option together yields an output that can never be spent, and the two are described independently, so nothing in either description looks wrong.
+
 \item \opc{CovAddress} to indicate an address that is an aggregated for Alice and Bob using MuSig2.
 
 \item \opc{CSIG}$(x)$ is defined as the script that pushes the public key $x$, followed by \opc{CHECKSIG}. This is the \emph{terminal} form of a signature check.
@@ -41,7 +41,7 @@ We omit transaction versions and nSequence, and lockTime values for simplicity. 
 
 \end{itemize}
 
-To facilitate reading, we also embed scripts in outputs as pre-P2SH, while in practice all outputs would use P2WSH or Taproot and specify script hashes, while scripts are revealed in the witness stack in the spending transaction.
+To facilitate reading, we also embed scripts in outputs as pre-P2SH, while in practice all outputs would be Taproot and specify script hashes, while scripts are revealed in the witness stack in the spending transaction.
 
 We assign names to outputs, so we can refer to the outputs by name instead of by transaction id/index.
 
@@ -86,7 +86,7 @@ Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or
 }
 
 \ioname{AliceCommitExit\_out} = \tuple{ $2\epsilon$, 
- P2WSHAddress( \tuple{ 
+ \texttt{TaprootAddress}( \tuple{ 
       \opc{OT-CSIGV}( $K^A_{pub}$ ) \opc{CVALV($i$)}
       \opc{Covenant-Check}
       })
@@ -137,7 +137,7 @@ Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or
     \tuple{ \ioname{PunishAlice\_out} }
 }
     
-\ioname{PunishAlice\_out} = \tuple{ $\epsilon$, {
+\ioname{PunishAlice\_out} = \tuple{ $\epsilon$, \texttt{TaprootAddress}({
           \tuple{ 
            \opc{OT-CSIGV}( $K^A_{pub}$ )  
            \tuple{i} 
@@ -164,7 +164,7 @@ Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or
     \tuple{ \ioname{PunishBob\_out} }
 }
     
-\ioname{PunishBob\_out} = \tuple{ $\epsilon$, {
+\ioname{PunishBob\_out} = \tuple{ $\epsilon$, \texttt{TaprootAddress}({
           \tuple{ 
            \opc{OT-CSIGV}( $K^B_{pub}$ )  
            \tuple{i} 
