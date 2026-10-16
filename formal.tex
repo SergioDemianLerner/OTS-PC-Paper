@@ -23,17 +23,21 @@ We omit transaction versions and nSequence, and lockTime values for simplicity. 
 \begin{itemize}
 \item "-" to indicate that we don't care about this field.
 
-\item \opc{Covenant-Check($i$)} to indicate the signing by all parties involved (Alice and Bob in our case). This can be accomplished by checking 2 signatures using two \opc{CHECKSIGVERIFY} opcodes or checking one signature aggregated for both parties using MuSig2. If present, an index ($i$) indicates which taproot path is being signed.
+\item \opc{Covenant-Check($i$)} to indicate the signing by all parties involved (Alice and Bob in our case). This can be accomplished by checking 2 signatures using a \opc{CHECKSIGVERIFY} followed by a \opc{CHECKSIG}, or by checking one signature aggregated for both parties using MuSig2 with a single \opc{CHECKSIG}. If present, an index ($i$) indicates which taproot path is being signed. It is written last in every script below, for the reason given at the end of this list.
 
 \item \opc{CovAddress} to indicate an address that is an aggregated for Alice and Bob using MuSig2.
 
-\item \opc{CSIGV}$(x)$ is defined as for the script that pushes the public key $x$, followed by \opc{CHECKSIGVERIFY}.
+\item \opc{CSIG}$(x)$ is defined as the script that pushes the public key $x$, followed by \opc{CHECKSIG}. This is the \emph{terminal} form of a signature check.
+
+\item \opc{CSIGV}$(x)$ is defined as the script that pushes the public key $x$, followed by \opc{CHECKSIGVERIFY}. This is the non-terminal form, for a signature check that is not the last in its script.
 
 \item \opc{CSEQV}$(x)$ is defined as the script that pushes value $x$,  and executes  \opc{CHECKSEQUENCEVERIFY} followed by \opc{DROP}.
 
 \item \opc{CHASHV}$(x)$ is defined as the script that executes \texttt{HASH160}, then pushes the hash value $x$, and executes \texttt{EQUALVERIFY}. Note the order: the opcode hashes the preimage taken from the stack and compares the result against $x$.
 
 \item \opc{CVALV}$(x)$ is defined as the script that pushes the value $x$, and executes \texttt{EQUALVERIFY}.
+
+\item A witness script must finish with exactly one true value on the stack. Each of \opc{CSEQV}, \opc{CHASHV}, \opc{CVALV} and the \opc{LESSTHAN} \opc{VERIFY} of the punishment consumes its operands and pushes nothing, so a script assembled only from them terminates with an \emph{empty} stack, and the output it guards can never be spent. Nothing about that fails noisily: the address is well formed, the spending transaction is well formed, and the defect appears only when a spend is attempted and rejected. Every script below therefore places its signature check last and in the terminal \opc{CSIG} form, so that the value \opc{CHECKSIG} pushes is what satisfies the rule. The ordering is not cosmetic; a reader transcribing these scripts with the checks in any other order will produce unspendable outputs.
 
 \end{itemize}
 
@@ -83,8 +87,8 @@ Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or
 
 \ioname{AliceCommitExit\_out} = \tuple{ $2\epsilon$, 
  P2WSHAddress( \tuple{ 
-      \opc{Covenant-Check}
       \opc{OT-CSIGV}( $K^A_{pub}$ ) \opc{CVALV($i$)}
+      \opc{Covenant-Check}
       })
  }
 
@@ -99,13 +103,13 @@ Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or
  \texttt{TaprootAddress}(\tuple{ 
  \tuple{ 
  \textbf{[1]} 
-  \opc{Covenant-Check(1)} 
-  \opc{CSEQV}( $T$ ) },
+  \opc{CSEQV}( $T$ ) 
+  \opc{Covenant-Check(1)} },
  \tuple{ 
  \textbf{[2]} 
-   \opc{Covenant-Check(2)} 
    \opc{CHASHV($H_a$)} 
    \opc{CHASHV($H_b$)} 
+   \opc{Covenant-Check(2)} 
   }
  })
  }
@@ -135,11 +139,11 @@ Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or
     
 \ioname{PunishAlice\_out} = \tuple{ $\epsilon$, {
           \tuple{ 
-           \opc{Covenant-Check} 
            \opc{OT-CSIGV}( $K^A_{pub}$ )  
            \tuple{i} 
            \opc{LESSTHAN} 
-           \opc{VERIFY} } 
+           \opc{VERIFY} 
+           \opc{Covenant-Check} } 
         }
 }
 
@@ -162,11 +166,11 @@ Each owner has its own exit path, rooted at its own \ioname{Alice\_Exit\_out} or
     
 \ioname{PunishBob\_out} = \tuple{ $\epsilon$, {
           \tuple{ 
-           \opc{Covenant-Check} 
            \opc{OT-CSIGV}( $K^B_{pub}$ )  
            \tuple{i} 
            \opc{LESSTHAN} 
-           \opc{VERIFY} } 
+           \opc{VERIFY} 
+           \opc{Covenant-Check} } 
         }
 }
 
